@@ -1,4 +1,16 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const API_BASE_URL = (() => {
+  const configured = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '')
+
+  if (!configured) {
+    return ''
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+    return ''
+  }
+
+  return configured
+})()
 
 async function request(path, options = {}) {
   const headers = {
@@ -87,6 +99,28 @@ export const authClient = {
       return { data: { ok: true } }
     } catch (_error) {
       return { data: { ok: true } }
+    }
+  },
+
+  async updateAccount({ currentPassword, newPassword, email, name }) {
+    try {
+      const result = await request('/api/admin/update-account', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword, email, name }),
+      })
+
+      return {
+        data: {
+          session: Boolean(result?.ok && result?.user),
+          user: result?.user ?? null,
+        },
+      }
+    } catch (error) {
+      return {
+        error: {
+          message: error?.message || 'Unable to update admin account',
+        },
+      }
     }
   },
 }

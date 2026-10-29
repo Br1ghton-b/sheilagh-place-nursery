@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 import express from 'express'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
-import { MongoClient } from 'mongodb'
+import { MongoClient, ObjectId } from 'mongodb'
 
 dotenv.config()
 
@@ -212,6 +212,89 @@ app.get('/api/session', requireAdmin, (req, res) => {
       role: req.user.role,
     },
   })
+})
+
+app.post('/api/admin/update-account', requireAdmin, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, email, name } = req.body || {}
+
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Your current password is required to update admin login details.' })
+    }
+
+    const collection = await ensureAdminCollection()
+    const userId = req.user.id
+    const existingUser = await collection.findOne({ _id: new ObjectId(userId) })
+
+    if (!existingUser) {
+      return res.status(404).json({ error: 'Admin account not found.' })
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(String(currentPassword), existingUser.passwordHash)
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({ error: 'Current password is incorrect.' })
+    }
+
+    const nextName = name ? String(name).trim() : existingUser.name
+    const nextEmail = email ? String(email).trim().toLowerCase() : existingUser.email
+
+    if (!nextName || !nextEmail) {
+      return res.status(400).json({ error: 'A display name and login email are required.' })
+    }
+
+    if (nextEmail !== existingUser.email) {
+      const emailTaken = await collection.findOne({ email: nextEmail, _id: { $ne: existingUser._id } })
+      if (emailTaken) {
+        return res.status(409).json({ error: 'That admin email is already in use.' })
+      }
+    }
+
+    const nextUpdate = {
+      name: nextName,
+      email: nextEmail,
+      updatedAt: new Date(),
+    }
+
+    if (newPassword && String(newPassword).trim()) {
+      const trimmedPassword = String(newPassword).trim()
+
+      if (trimmedPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters long.' })
+      }
+
+      nextUpdate.passwordHash = await bcrypt.hash(trimmedPassword, 12)
+    }
+
+    await collection.updateOne(
+      { _id: existingUser._id },
+      { $set: nextUpdate },
+    )
+
+    const updatedUser = {
+      id: String(existingUser._id),
+      email: nextEmail,
+      name: nextName,
+      role: 'admin',
+    }
+
+    const token = createToken(updatedUser)
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 8 * 60 * 60 * 1000,
+    })
+
+    return res.json({
+      ok: true,
+      user: updatedUser,
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Unable to update admin account',
+      details: error.message,
+    })
+  }
 })
 
 app.listen(port, () => {

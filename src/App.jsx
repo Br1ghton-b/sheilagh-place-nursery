@@ -349,6 +349,13 @@ function AdminDashboardPage() {
   const [eventForm, setEventForm] = useState({ title: '', date: '', description: '' })
   const [newsletterForm, setNewsletterForm] = useState({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
   const [galleryForm, setGalleryForm] = useState({ src: '', alt: '' })
+  const [accountSettingsForm, setAccountSettingsForm] = useState({
+    name: '',
+    email: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
   const [editingEventId, setEditingEventId] = useState(null)
   const [editingNewsletterId, setEditingNewsletterId] = useState(null)
   const [statusMessage, setStatusMessage] = useState('')
@@ -395,6 +402,13 @@ function AdminDashboardPage() {
         if (!isMounted) return
         const sessionUser = result?.data?.user ?? null
         setUser(sessionUser)
+        if (sessionUser) {
+          setAccountSettingsForm((current) => ({
+            ...current,
+            name: sessionUser.name || '',
+            email: sessionUser.email || '',
+          }))
+        }
         setLoading(false)
 
         if (!sessionUser) {
@@ -412,6 +426,61 @@ function AdminDashboardPage() {
       isMounted = false
     }
   }, [navigate])
+
+  const handleAccountSettingsChange = (event) => {
+    const { name, value } = event.target
+    setAccountSettingsForm((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleAccountSettingsSubmit = async (event) => {
+    event.preventDefault()
+
+    const name = accountSettingsForm.name.trim()
+    const email = accountSettingsForm.email.trim().toLowerCase()
+
+    if (!name || !email) {
+      setStatusMessage('Please enter an admin display name and login email.')
+      return
+    }
+
+    if (!accountSettingsForm.currentPassword) {
+      setStatusMessage('Please enter your current password to update the admin login.')
+      return
+    }
+
+    if (accountSettingsForm.newPassword && accountSettingsForm.newPassword.length < 8) {
+      setStatusMessage('The new password must be at least 8 characters long.')
+      return
+    }
+
+    if (accountSettingsForm.newPassword && accountSettingsForm.newPassword !== accountSettingsForm.confirmPassword) {
+      setStatusMessage('The new password and confirmation do not match.')
+      return
+    }
+
+    const result = await authClient.updateAccount({
+      currentPassword: accountSettingsForm.currentPassword,
+      newPassword: accountSettingsForm.newPassword || undefined,
+      email,
+      name,
+    })
+
+    if (result?.error) {
+      setStatusMessage(result.error.message || 'Unable to update admin login details.')
+      return
+    }
+
+    const updatedUser = result?.data?.user ?? user
+    setUser(updatedUser)
+    setStatusMessage('Admin login details updated successfully.')
+    persistAudit(`Admin account updated for ${updatedUser.email}`)
+    setAccountSettingsForm((current) => ({
+      ...current,
+      currentPassword: '',
+      newPassword: '',
+      confirmPassword: '',
+    }))
+  }
 
   const handleSignOut = async () => {
     await authClient.signOut()
@@ -694,6 +763,33 @@ function AdminDashboardPage() {
       </div>
 
       <div className="admin-grid">
+        <div className="admin-card admin-panel-block wide-card">
+          <h2>Admin login settings</h2>
+          <form className="admin-event-form" onSubmit={handleAccountSettingsSubmit}>
+            <label>
+              Display name
+              <input type="text" name="name" value={accountSettingsForm.name} onChange={handleAccountSettingsChange} placeholder="School admin" required />
+            </label>
+            <label>
+              Login email
+              <input type="email" name="email" value={accountSettingsForm.email} onChange={handleAccountSettingsChange} placeholder="admin@school.com" required />
+            </label>
+            <label>
+              Current password
+              <input type="password" name="currentPassword" value={accountSettingsForm.currentPassword} onChange={handleAccountSettingsChange} placeholder="Enter your current password" required />
+            </label>
+            <label>
+              New password (optional)
+              <input type="password" name="newPassword" value={accountSettingsForm.newPassword} onChange={handleAccountSettingsChange} placeholder="Leave empty to keep the current password" />
+            </label>
+            <label>
+              Confirm new password
+              <input type="password" name="confirmPassword" value={accountSettingsForm.confirmPassword} onChange={handleAccountSettingsChange} placeholder="Re-enter the new password" />
+            </label>
+            <button type="submit" className="primary-button">Update admin login</button>
+          </form>
+        </div>
+
         <div className="admin-card admin-panel-block wide-card">
           <h2>Review enquiry messages</h2>
           <div className="admin-filter-row">
@@ -1142,7 +1238,7 @@ function HomePage() {
             <span className="feature-strip-icon">🌿</span>
             <div className="feature-strip-text">
               <strong>Organic Garden</strong>
-              <span>Children help grow, prepare and enjoy fresh vegetables from our premises.</span>
+              <span>We grow our own vegetables on the premises to incorporate fresh, wholesome produce into the children&apos;s daily meals.</span>
             </div>
           </div>
           <div className="feature-strip-item">
@@ -1201,7 +1297,7 @@ function HomePage() {
             <ul className="about-list">
               <li className="about-list-item">Day care &amp; pre-school for children aged 1–6 years</li>
               <li className="about-list-item">Aftercare programme for children aged 7–12 years</li>
-              <li className="about-list-item">Organic garden grown and maintained by the children</li>
+              <li className="about-list-item">Fresh organic vegetables grown on our premises and served in daily meals</li>
               <li className="about-list-item">Swimming, sport and creative activities throughout the year</li>
             </ul>
 
