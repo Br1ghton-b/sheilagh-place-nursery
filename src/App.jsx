@@ -130,7 +130,68 @@ const initialEvents = [
   { id: 6, title: 'Connect Day', date: '2026-11-06', description: 'Our annual Connect event on Friday 6 November. Information to follow.' },
 ]
 
+const defaultNewsletterEntries = [
+  {
+    id: 1,
+    term: '3rd Term',
+    title: 'Welcome Back to School for the 3rd Term',
+    intro: 'Welcome back to school for the 3rd term, I trust you all had a good break and are ready for some exciting times.',
+    points: [
+      '28th August Friday — Spring Picnic',
+      '1st September — Pyjama Day Photos + Bubble Day',
+      '3rd September — Zoo visit',
+      '23rd September — Heritage Day Braai',
+      '24th September — End of 3rd term',
+    ],
+    closing: 'We will continue with swimming and soccer/ball skills. We will start to collect for staff bonus in September, information to follow. We will be closing on Friday 25th September as it is a school holiday. Our annual connect is on Friday 6th November, information to follow.',
+  },
+]
+
 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+const adminStorageKeys = {
+  enquiries: 'sheilagh-enquiries',
+  events: 'sheilagh-events',
+  gallery: 'sheilagh-gallery',
+  newsletters: 'sheilagh-newsletters',
+}
+
+const defaultEnquiries = [
+  {
+    id: 1,
+    name: 'Aisha Patel',
+    email: 'aisha.patel@example.com',
+    phone: '+27 82 111 2222',
+    message: 'We would like to know more about the 2026 intake for our 4-year-old son.',
+    submittedAt: '2026-10-12T10:15:00.000Z',
+    status: 'new',
+  },
+  {
+    id: 2,
+    name: 'Lebo Mokoena',
+    email: 'lebo.m@example.com',
+    phone: '+27 71 333 4444',
+    message: 'Can we arrange a school visit and find out about the aftercare programme?',
+    submittedAt: '2026-10-18T14:00:00.000Z',
+    status: 'reviewed',
+  },
+]
+
+function readStoredList(storageKey, fallback) {
+  try {
+    const savedValue = window.localStorage.getItem(storageKey)
+
+    if (!savedValue) {
+      window.localStorage.setItem(storageKey, JSON.stringify(fallback))
+      return fallback
+    }
+
+    const parsed = JSON.parse(savedValue)
+    return Array.isArray(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
 
 function AdminRoute({ children }) {
   const location = useLocation()
@@ -278,6 +339,53 @@ function AdminDashboardPage() {
   const navigate = useNavigate()
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [enquiries, setEnquiries] = useState(() => readStoredList(adminStorageKeys.enquiries, defaultEnquiries))
+  const [events, setEvents] = useState(() => readStoredList(adminStorageKeys.events, initialEvents))
+  const [gallery, setGallery] = useState(() => readStoredList(adminStorageKeys.gallery, galleryItems))
+  const [newsletterEntries, setNewsletterEntries] = useState(() => readStoredList(adminStorageKeys.newsletters, defaultNewsletterEntries))
+  const [auditLog, setAuditLog] = useState(() => readStoredList('sheilagh-audit-log', [
+    { id: 1, message: 'Dashboard initialized for school administration', timestamp: new Date().toISOString() },
+  ]))
+  const [eventForm, setEventForm] = useState({ title: '', date: '', description: '' })
+  const [newsletterForm, setNewsletterForm] = useState({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+  const [galleryForm, setGalleryForm] = useState({ src: '', alt: '' })
+  const [editingEventId, setEditingEventId] = useState(null)
+  const [editingNewsletterId, setEditingNewsletterId] = useState(null)
+  const [statusMessage, setStatusMessage] = useState('')
+  const [filter, setFilter] = useState('all')
+
+  const stats = useMemo(() => {
+    const newEnquiries = enquiries.filter((item) => item.status === 'new').length
+    const reviewedEnquiries = enquiries.filter((item) => item.status === 'reviewed').length
+    const contactedEnquiries = enquiries.filter((item) => item.status === 'contacted').length
+
+    return {
+      totalEnquiries: enquiries.length,
+      newEnquiries,
+      reviewedEnquiries,
+      contactedEnquiries,
+      totalEvents: events.length,
+      totalGallery: gallery.length,
+      totalNewsletters: newsletterEntries.length,
+      lastAudit: auditLog[0]?.message || 'No activity yet',
+    }
+  }, [auditLog, enquiries, events, gallery, newsletterEntries])
+
+  const filteredEnquiries = enquiries.filter((item) => filter === 'all' ? true : item.status === filter)
+
+  const persistAudit = (message) => {
+    const nextEntry = {
+      id: Date.now(),
+      message,
+      timestamp: new Date().toISOString(),
+    }
+
+    setAuditLog((current) => {
+      const next = [nextEntry, ...current].slice(0, 8)
+      window.localStorage.setItem('sheilagh-audit-log', JSON.stringify(next))
+      return next
+    })
+  }
 
   useEffect(() => {
     let isMounted = true
@@ -310,6 +418,242 @@ function AdminDashboardPage() {
     navigate('/admin/login', { replace: true })
   }
 
+  const handleReviewEnquiry = (id) => {
+    const flow = ['new', 'reviewed', 'contacted', 'archived', 'new']
+
+    const updated = enquiries.map((enquiry) => {
+      if (enquiry.id !== id) {
+        return enquiry
+      }
+
+      const currentIndex = flow.indexOf(enquiry.status || 'new')
+      const nextStatus = flow[(currentIndex + 1) % flow.length]
+      return { ...enquiry, status: nextStatus }
+    })
+
+    setEnquiries(updated)
+    window.localStorage.setItem(adminStorageKeys.enquiries, JSON.stringify(updated))
+    persistAudit('Enquiry status updated')
+  }
+
+  const handleEventChange = (event) => {
+    const { name, value } = event.target
+    setEventForm((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleEventSubmit = (event) => {
+    event.preventDefault()
+
+    if (!eventForm.title || !eventForm.date || !eventForm.description) {
+      setStatusMessage('Please complete the title, date and description before saving the event.')
+      return
+    }
+
+    const sorted = [...events]
+    let nextEvents
+
+    if (editingEventId) {
+      nextEvents = sorted.map((entry) => (
+        entry.id === editingEventId
+          ? { ...entry, title: eventForm.title.trim(), date: eventForm.date, description: eventForm.description.trim() }
+          : entry
+      ))
+      setStatusMessage('School event updated successfully.')
+      persistAudit(`Event edited: ${eventForm.title.trim()}`)
+    } else {
+      const nextEvent = {
+        id: Date.now(),
+        title: eventForm.title.trim(),
+        date: eventForm.date,
+        description: eventForm.description.trim(),
+      }
+      nextEvents = [...sorted, nextEvent].sort((left, right) => new Date(left.date) - new Date(right.date))
+      setStatusMessage('School event added successfully.')
+      persistAudit(`Event added: ${nextEvent.title}`)
+    }
+
+    setEvents(nextEvents)
+    window.localStorage.setItem(adminStorageKeys.events, JSON.stringify(nextEvents))
+    setEventForm({ title: '', date: '', description: '' })
+    setEditingEventId(null)
+  }
+
+  const handleEditEvent = (entry) => {
+    setEditingEventId(entry.id)
+    setEventForm({
+      title: entry.title,
+      date: entry.date,
+      description: entry.description,
+    })
+    setStatusMessage('Editing existing school event.')
+  }
+
+  const handleDeleteEvent = (eventId) => {
+    const nextEvents = events.filter((entry) => entry.id !== eventId)
+    setEvents(nextEvents)
+    window.localStorage.setItem(adminStorageKeys.events, JSON.stringify(nextEvents))
+    persistAudit('Event removed from the school calendar')
+    setStatusMessage('School event removed.')
+
+    if (editingEventId === eventId) {
+      setEditingEventId(null)
+      setEventForm({ title: '', date: '', description: '' })
+    }
+  }
+
+  const handleNewsletterChange = (event) => {
+    const { name, value } = event.target
+    setNewsletterForm((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleNewsletterSubmit = (event) => {
+    event.preventDefault()
+
+    const term = newsletterForm.term.trim()
+    const title = newsletterForm.title.trim()
+    const intro = newsletterForm.intro.trim()
+    const points = newsletterForm.points
+      .split(/\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const closing = newsletterForm.closing.trim()
+
+    if (!term || !title || !intro || points.length === 0 || !closing) {
+      setStatusMessage('Please complete the term, title, intro, points and closing note for the newsletter.')
+      return
+    }
+
+    const payload = {
+      id: editingNewsletterId ?? Date.now(),
+      term,
+      title,
+      intro,
+      points,
+      closing,
+    }
+
+    const nextNewsletterEntries = editingNewsletterId
+      ? newsletterEntries.map((entry) => (entry.id === editingNewsletterId ? payload : entry))
+      : [payload, ...newsletterEntries]
+
+    setNewsletterEntries(nextNewsletterEntries)
+    window.localStorage.setItem(adminStorageKeys.newsletters, JSON.stringify(nextNewsletterEntries))
+    setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+    setEditingNewsletterId(null)
+    setStatusMessage(editingNewsletterId ? 'Newsletter updated successfully.' : 'Newsletter added successfully.')
+    persistAudit(editingNewsletterId ? `Newsletter updated: ${title}` : `Newsletter added: ${title}`)
+  }
+
+  const handleEditNewsletter = (entry) => {
+    setEditingNewsletterId(entry.id)
+    setNewsletterForm({
+      id: entry.id,
+      term: entry.term,
+      title: entry.title,
+      intro: entry.intro,
+      points: entry.points.join('\n'),
+      closing: entry.closing,
+    })
+    setStatusMessage('Editing existing newsletter.')
+  }
+
+  const handleDeleteNewsletter = (newsletterId) => {
+    const nextNewsletterEntries = newsletterEntries.filter((entry) => entry.id !== newsletterId)
+    setNewsletterEntries(nextNewsletterEntries)
+    window.localStorage.setItem(adminStorageKeys.newsletters, JSON.stringify(nextNewsletterEntries))
+    persistAudit('Newsletter removed from the school updates')
+    setStatusMessage('Newsletter removed.')
+
+    if (editingNewsletterId === newsletterId) {
+      setEditingNewsletterId(null)
+      setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+    }
+  }
+
+  const handleGalleryChange = (event) => {
+    const { name, value } = event.target
+    setGalleryForm((current) => ({ ...current, [name]: value }))
+  }
+
+  const handleGalleryFileSelect = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setStatusMessage('Please choose an image file for the gallery.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : ''
+      const suggestedAlt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ').trim() || 'School gallery image'
+
+      setGalleryForm((current) => ({
+        ...current,
+        src: result,
+        alt: current.alt || suggestedAlt,
+      }))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleGallerySubmit = (event) => {
+    event.preventDefault()
+
+    const src = galleryForm.src.trim()
+    const alt = galleryForm.alt.trim()
+
+    if (!src || !alt) {
+      setStatusMessage('Please upload an image and add an alt description.')
+      return
+    }
+
+    const nextGallery = [{ src, alt }, ...gallery]
+    setGallery(nextGallery)
+    window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
+    setGalleryForm({ src: '', alt: '' })
+    setStatusMessage('Gallery content updated.')
+    persistAudit(`Gallery image added: ${alt}`)
+  }
+
+  const handleGalleryDelete = (index) => {
+    const nextGallery = gallery.filter((_, itemIndex) => itemIndex !== index)
+    setGallery(nextGallery)
+    window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
+    setStatusMessage('Gallery item removed.')
+    persistAudit('Gallery image removed')
+  }
+
+  const handleGalleryMove = (index, direction) => {
+    const nextIndex = index + direction
+    if (nextIndex < 0 || nextIndex >= gallery.length) {
+      return
+    }
+
+    const nextGallery = [...gallery]
+    ;[nextGallery[index], nextGallery[nextIndex]] = [nextGallery[nextIndex], nextGallery[index]]
+    setGallery(nextGallery)
+    window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
+    persistAudit('Gallery order updated')
+  }
+
+  const handleGalleryRefresh = () => {
+    const nextGallery = [...gallery]
+    const available = galleryItems.filter((item) => !nextGallery.some((entry) => entry.src === item.src))
+    const freshItem = available[0] || galleryItems[0]
+
+    if (freshItem) {
+      nextGallery.unshift({ ...freshItem, alt: `${freshItem.alt} (Updated)` })
+      setGallery(nextGallery)
+      window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
+      setStatusMessage('Gallery content refreshed.')
+      persistAudit('Gallery refreshed with a new item')
+    }
+  }
+
   if (loading) {
     return <div className="admin-loading">Loading admin dashboard…</div>
   }
@@ -326,25 +670,222 @@ function AdminDashboardPage() {
         </button>
       </div>
 
+      <div className="admin-summary-grid">
+        <div className="admin-card summary-card">
+          <span>New enquiries</span>
+          <strong>{stats.newEnquiries}</strong>
+        </div>
+        <div className="admin-card summary-card">
+          <span>Reviewed</span>
+          <strong>{stats.reviewedEnquiries}</strong>
+        </div>
+        <div className="admin-card summary-card">
+          <span>School events</span>
+          <strong>{stats.totalEvents}</strong>
+        </div>
+        <div className="admin-card summary-card">
+          <span>Gallery items</span>
+          <strong>{stats.totalGallery}</strong>
+        </div>
+        <div className="admin-card summary-card">
+          <span>Newsletters</span>
+          <strong>{stats.totalNewsletters}</strong>
+        </div>
+      </div>
+
       <div className="admin-grid">
-        <div className="admin-card">
-          <h2>Welcome back</h2>
-          <p>{user?.email || 'Signed in administrator'}</p>
+        <div className="admin-card admin-panel-block wide-card">
+          <h2>Review enquiry messages</h2>
+          <div className="admin-filter-row">
+            {['all', 'new', 'reviewed', 'contacted', 'archived'].map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={`filter-chip ${filter === option ? 'is-active' : ''}`}
+                onClick={() => setFilter(option)}
+              >
+                {option === 'all' ? 'All' : option}
+              </button>
+            ))}
+          </div>
+
+          {filteredEnquiries.length === 0 ? (
+            <p>No enquiries match this status.</p>
+          ) : (
+            <div className="admin-list">
+              {filteredEnquiries.map((enquiry) => (
+                <div key={enquiry.id} className="admin-list-item">
+                  <div>
+                    <strong>{enquiry.name}</strong>
+                    <p>{enquiry.email}</p>
+                    <p>{enquiry.phone}</p>
+                    <p>{enquiry.message}</p>
+                    <small>{new Date(enquiry.submittedAt).toLocaleString()}</small>
+                  </div>
+                  <div className="admin-list-actions">
+                    <span className={`status-pill status-${enquiry.status || 'new'}`}>{enquiry.status || 'new'}</span>
+                    <button type="button" className="secondary-button" onClick={() => handleReviewEnquiry(enquiry.id)}>
+                      {enquiry.status === 'archived' ? 'Reset' : 'Advance status'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="admin-card">
-          <h2>Quick actions</h2>
-          <ul>
-            <li>Review enquiry messages</li>
-            <li>Update school events</li>
-            <li>Refresh gallery content</li>
-          </ul>
+
+        <div className="admin-card admin-panel-block">
+          <h2>Update school events</h2>
+          <form className="admin-event-form" onSubmit={handleEventSubmit}>
+            <label>
+              Event title
+              <input type="text" name="title" value={eventForm.title} onChange={handleEventChange} placeholder="School picnic" required />
+            </label>
+            <label>
+              Event date
+              <input type="date" name="date" value={eventForm.date} onChange={handleEventChange} required />
+            </label>
+            <label>
+              Description
+              <textarea name="description" value={eventForm.description} onChange={handleEventChange} rows="4" placeholder="Add event details..." required />
+            </label>
+            <button type="submit" className="primary-button">{editingEventId ? 'Save event changes' : 'Add event'}</button>
+            {editingEventId && (
+              <button type="button" className="secondary-button" onClick={() => {
+                setEditingEventId(null)
+                setEventForm({ title: '', date: '', description: '' })
+              }}>
+                Cancel edit
+              </button>
+            )}
+          </form>
+          {statusMessage && <p className="admin-status-message">{statusMessage}</p>}
+
+          <div className="admin-mini-list">
+            {events.map((entry) => (
+              <div key={entry.id} className="admin-mini-item">
+                <div className="admin-event-summary">
+                  <span className="event-date-badge">
+                    {new Date(`${entry.date}T12:00:00`).toLocaleDateString('en-ZA', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </span>
+                  <div>
+                    <strong>{entry.title}</strong>
+                    <p>{entry.description}</p>
+                  </div>
+                </div>
+                <div className="mini-item-actions">
+                  <button type="button" className="secondary-button tiny-button" onClick={() => handleEditEvent(entry)}>Edit</button>
+                  <button type="button" className="secondary-button tiny-button" onClick={() => handleDeleteEvent(entry.id)}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="admin-card wide-card">
-          <h2>Next steps</h2>
-          <p>
-            Connect your Neon Auth project URL in <strong>VITE_NEON_AUTH_URL</strong>, then add your own admin
-            event and content APIs for full CRUD management.
-          </p>
+
+        <div className="admin-card admin-panel-block">
+          <h2>Manage newsletter</h2>
+          <form className="admin-event-form" onSubmit={handleNewsletterSubmit}>
+            <label>
+              Newsletter term
+              <input type="text" name="term" value={newsletterForm.term} onChange={handleNewsletterChange} placeholder="3rd Term" required />
+            </label>
+            <label>
+              Title
+              <input type="text" name="title" value={newsletterForm.title} onChange={handleNewsletterChange} placeholder="Welcome Back to School" required />
+            </label>
+            <label>
+              Intro
+              <textarea name="intro" value={newsletterForm.intro} onChange={handleNewsletterChange} rows="3" placeholder="Write the opening message..." required />
+            </label>
+            <label>
+              Diary points
+              <textarea name="points" value={newsletterForm.points} onChange={handleNewsletterChange} rows="5" placeholder={'28th August Friday — Spring Picnic\n1st September — Pyjama Day'} required />
+            </label>
+            <label>
+              Closing note
+              <textarea name="closing" value={newsletterForm.closing} onChange={handleNewsletterChange} rows="3" placeholder="Add your closing message..." required />
+            </label>
+            <button type="submit" className="primary-button">{editingNewsletterId ? 'Save newsletter' : 'Add newsletter'}</button>
+            {editingNewsletterId && (
+              <button type="button" className="secondary-button" onClick={() => {
+                setEditingNewsletterId(null)
+                setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+              }}>
+                Cancel edit
+              </button>
+            )}
+          </form>
+
+          <div className="admin-mini-list">
+            {newsletterEntries.map((entry) => (
+              <div key={entry.id} className="admin-mini-item">
+                <div className="admin-event-summary">
+                  <span className="event-date-badge">{entry.term}</span>
+                  <div>
+                    <strong>{entry.title}</strong>
+                    <p>{entry.intro}</p>
+                  </div>
+                </div>
+                <div className="mini-item-actions">
+                  <button type="button" className="secondary-button tiny-button" onClick={() => handleEditNewsletter(entry)}>Edit</button>
+                  <button type="button" className="secondary-button tiny-button" onClick={() => handleDeleteNewsletter(entry.id)}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="admin-card admin-panel-block">
+          <h2>Refresh gallery content</h2>
+          <form className="admin-gallery-form" onSubmit={handleGallerySubmit}>
+            <label>
+              Upload image
+              <input type="file" accept="image/*" onChange={handleGalleryFileSelect} />
+              {galleryForm.src && (
+                <div className="gallery-upload-preview">
+                  <img src={galleryForm.src} alt="Selected gallery upload preview" />
+                </div>
+              )}
+            </label>
+            <label>
+              Alt text
+              <input type="text" name="alt" value={galleryForm.alt} onChange={handleGalleryChange} placeholder="Children playing outdoors" required />
+            </label>
+            <button type="submit" className="primary-button">Add gallery image</button>
+          </form>
+          <button type="button" className="secondary-button" onClick={handleGalleryRefresh}>Refresh gallery</button>
+
+          <div className="admin-gallery-list">
+            {gallery.map((item, index) => (
+              <div key={`${item.src}-${index}`} className="gallery-row">
+                <img src={item.src} alt={item.alt} />
+                <div className="gallery-row-meta">
+                  <strong>{item.alt}</strong>
+                  <div className="gallery-row-actions">
+                    <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryMove(index, -1)}>↑</button>
+                    <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryMove(index, 1)}>↓</button>
+                    <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryDelete(index)}>Remove</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="admin-card admin-panel-block wide-card">
+          <h2>Activity log</h2>
+          <div className="admin-activity-list">
+            {auditLog.map((entry) => (
+              <div key={entry.id} className="activity-entry">
+                <strong>{entry.message}</strong>
+                <small>{new Date(entry.timestamp).toLocaleString()}</small>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -969,6 +1510,7 @@ function AboutPage() {
 function EventsPage() {
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 7, 1))
   const [selectedDate, setSelectedDate] = useState('2026-08-28')
+  const [newsletterEntries, setNewsletterEntries] = useState(() => readStoredList(adminStorageKeys.newsletters, defaultNewsletterEntries))
 
   const eventMap = useMemo(() => {
     const map = new Map()
@@ -999,29 +1541,24 @@ function EventsPage() {
       </div>
 
       <div className="page-content">
-        <div className="newsletter-box">
-          <p className="section-label">Newsletter · 3rd Term</p>
-          <h2>Welcome Back to School for the 3rd Term</h2>
-          <p>
-            Welcome back to school for the 3rd term, I trust you all had a good break and are ready for some exciting times.
-          </p>
-          <div className="newsletter-points">
-            <p><strong>Dates to diary:</strong></p>
-            <ul>
-              <li>28th August Friday — Spring Picnic</li>
-              <li>1st September — Pyjama Day Photos + Bubble Day</li>
-              <li>3rd September — Zoo visit</li>
-              <li>23rd September — Heritage Day Braai</li>
-              <li>24th September — End of 3rd term</li>
-            </ul>
+        {newsletterEntries.map((newsletter) => (
+          <div className="newsletter-box" key={newsletter.id}>
+            <p className="section-label">Newsletter · {newsletter.term}</p>
+            <h2>{newsletter.title}</h2>
+            <p>{newsletter.intro}</p>
+            {newsletter.points?.length > 0 && (
+              <div className="newsletter-points">
+                <p><strong>Dates to diary:</strong></p>
+                <ul>
+                  {newsletter.points.map((point) => (
+                    <li key={`${newsletter.id}-${point}`}>{point}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {newsletter.closing && <p>{newsletter.closing}</p>}
           </div>
-          <p>
-            We will continue with swimming and soccer/ball skills. We will start to collect for staff bonus in September, information to follow.
-          </p>
-          <p>
-            We will be closing on Friday 25th September as it is a school holiday. Our annual connect is on Friday 6th November, information to follow.
-          </p>
-        </div>
+        ))}
 
         <div className="calendar-layout">
           <div className="calendar-panel">
@@ -1133,6 +1670,19 @@ function ContactPage() {
     const cleanEmail = formData.email.trim()
     const cleanPhone = formData.phone.trim()
     const cleanMessage = formData.message.trim() || 'No message provided.'
+
+    const enquiries = readStoredList(adminStorageKeys.enquiries, defaultEnquiries)
+    const nextEnquiries = [{
+      id: Date.now(),
+      name: cleanName,
+      email: cleanEmail,
+      phone: cleanPhone,
+      message: cleanMessage,
+      status: 'new',
+      submittedAt: new Date().toISOString(),
+    }, ...enquiries]
+
+    window.localStorage.setItem(adminStorageKeys.enquiries, JSON.stringify(nextEnquiries))
 
     const text = `Hello Sheilagh's Place Nursery,%0A%0A` +
       `Parent name: ${encodeURIComponent(cleanName)}%0A` +

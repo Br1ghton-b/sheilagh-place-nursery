@@ -1,14 +1,29 @@
-import pg from 'pg'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { MongoClient } from 'mongodb'
 
-const { Pool } = pg
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : undefined,
-})
-
+const mongoUri = process.env.MONGODB_URI
+const mongoDbName = process.env.MONGODB_DB || 'sheilagh_place'
 const jwtSecret = process.env.JWT_SECRET || 'dev-change-this-secret'
+
+let mongoClient = null
+let adminUsersCollection = null
+
+async function ensureAdminCollection() {
+  if (!mongoUri) {
+    throw new Error('MONGODB_URI is not configured.')
+  }
+
+  if (!mongoClient) {
+    mongoClient = new MongoClient(mongoUri)
+    await mongoClient.connect()
+    const db = mongoClient.db(mongoDbName)
+    adminUsersCollection = db.collection('admin_users')
+    await adminUsersCollection.createIndex({ email: 1 }, { unique: true })
+  }
+
+  return adminUsersCollection
+}
 
 function jsonResponse(statusCode, payload, extraHeaders = {}) {
   return {
@@ -41,18 +56,6 @@ function parseCookies(rawCookieHeader) {
   })
 
   return cookies
-}
-
-async function ensureAdminTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS admin_users (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name TEXT,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
-  `)
 }
 
 function createToken(user) {
@@ -100,8 +103,7 @@ export async function handler(event) {
         return jsonResponse(400, { error: 'Email and password are required' })
       }
 
-      await ensureAdminTable()
-
+      const collection = await ensureAdminCollection()
       const normalizedEmail = String(email).trim().toLowerCase()
       const trimmedPassword = String(password)
       const safeName = name ? String(name).trim() : normalizedEmail.split('@')[0]
@@ -111,16 +113,50 @@ export async function handler(event) {
       }
 
       const passwordHash = await bcrypt.hash(trimmedPassword, 12)
-      const result = await pool.query(
-        `INSERT INTO admin_users (name, email, password_hash)
-         VALUES ($1, $2, $3)
-         RETURNING id, name, email`,
-        [safeName, normalizedEmail, passwordHash],
-      )
+      const existingUser = await collection.findOne({ email: normalizedEmail })
 
-      return jsonResponse(201, { ok: true, user: result.rows[0] })
+      const userRecord = existingUser || {
+        _id: (await collection.insertOne({
+          name: safeName,
+          email: normalizedEmail,
+          passwordHash,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })).insertedId,
+        name: safeName,
+        email: normalizedEmail,
+      }
+
+      if (existingUser) {
+        await collection.updateOne(
+          { _id: existingUser._id },
+          { $set: { name: safeName, passwordHash, updatedAt: new Date() } },
+        )
+      }
+
+      const token = createToken({
+        id: String(userRecord._id),
+        email: userRecord.email,
+        name: userRecord.name,
+      })
+      const secure = !event.headers.host?.includes('localhost')
+
+      return jsonResponse(
+        existingUser ? 200 : 201,
+        {
+          ok: true,
+          user: {
+            id: String(userRecord._id),
+            email: userRecord.email,
+            name: userRecord.name,
+          },
+        },
+        {
+          'Set-Cookie': `auth_token=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=28800; ${secure ? 'Secure;' : ''}`,
+        },
+      )
     } catch (error) {
-      if (error?.code === '23505') {
+      if (error?.code === 11000) {
         return jsonResponse(409, { error: 'An admin account with that email already exists' })
       }
 
@@ -139,21 +175,24 @@ export async function handler(event) {
         return jsonResponse(400, { error: 'Email and password are required' })
       }
 
-      await ensureAdminTable()
+      const collection = await ensureAdminCollection()
       const normalizedEmail = String(email).trim().toLowerCase()
-      const result = await pool.query('SELECT * FROM admin_users WHERE email = $1', [normalizedEmail])
-      const user = result.rows[0]
+      const user = await collection.findOne({ email: normalizedEmail })
 
       if (!user) {
         return jsonResponse(401, { error: 'Invalid credentials' })
       }
 
-      const isValid = await bcrypt.compare(String(password), user.password_hash)
+      const isValid = await bcrypt.compare(String(password), user.passwordHash)
       if (!isValid) {
         return jsonResponse(401, { error: 'Invalid credentials' })
       }
 
-      const token = createToken(user)
+      const token = createToken({
+        id: String(user._id),
+        email: user.email,
+        name: user.name,
+      })
       const secure = !event.headers.host?.includes('localhost')
 
       return jsonResponse(
@@ -161,7 +200,7 @@ export async function handler(event) {
         {
           ok: true,
           user: {
-            id: user.id,
+            id: String(user._id),
             email: user.email,
             name: user.name,
           },

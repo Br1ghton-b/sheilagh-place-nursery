@@ -1,78 +1,100 @@
-const API_BASE = '/api'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
-async function apiFetch(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  })
-
-  const text = await response.text()
-  const payload = text ? JSON.parse(text) : {}
-
-  if (!response.ok) {
-    const error = new Error(payload.error || 'Request failed')
-    error.status = response.status
-    throw error
+async function request(path, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
   }
 
-  return { data: payload }
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers,
+  })
+
+  const contentType = response.headers.get('content-type') || ''
+  const payload = contentType.includes('application/json') ? await response.json() : await response.text()
+
+  if (!response.ok) {
+    throw new Error(payload?.error || payload || 'Request failed')
+  }
+
+  return payload
+}
+
+async function signInWithCredentials(email, password) {
+  try {
+    const result = await request('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })
+
+    return {
+      data: {
+        session: Boolean(result?.ok && result?.user),
+        user: result?.user ?? null,
+      },
+    }
+  } catch (error) {
+    return {
+      error: {
+        message: error?.message || 'Unable to sign in',
+      },
+    }
+  }
+}
+
+async function signUpWithCredentials(email, password, name) {
+  try {
+    const result = await request('/api/create-admin', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, name }),
+    })
+
+    return {
+      data: {
+        session: Boolean(result?.ok && result?.user),
+        user: result?.user ?? null,
+      },
+    }
+  } catch (error) {
+    return {
+      error: {
+        message: error?.message || 'Unable to create account',
+      },
+    }
+  }
 }
 
 export const authClient = {
   async getSession() {
     try {
-      const result = await apiFetch('/session')
+      const result = await request('/api/session')
       return {
         data: {
-          session: true,
-          user: result.data.user,
+          session: Boolean(result?.ok && result?.user),
+          user: result?.user ?? null,
         },
       }
-    } catch (error) {
-      if (error.status === 401) {
-        return { data: { session: null, user: null } }
-      }
-
-      throw error
+    } catch (_error) {
+      return { data: { session: false, user: null } }
     }
   },
 
-  async signIn(email, password) {
-    return apiFetch('/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    })
-  },
-
-  async signUp(email, password, name) {
-    return apiFetch('/create-admin', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, name }),
-    })
-  },
-
   async signOut() {
-    return apiFetch('/logout', { method: 'POST' })
+    try {
+      await request('/api/logout', { method: 'POST' })
+      return { data: { ok: true } }
+    } catch (_error) {
+      return { data: { ok: true } }
+    }
   },
 }
 
-const legacySignIn = authClient.signIn
-const legacySignUp = authClient.signUp
-
 authClient.signIn = {
-  email: async ({ email, password }) => {
-    const result = await legacySignIn(email, password)
-    return result.data
-  },
+  email: async ({ email, password }) => signInWithCredentials(email, password),
 }
 
 authClient.signUp = {
-  email: async ({ name, email, password }) => {
-    const result = await legacySignUp(email, password, name)
-    return result.data
-  },
+  email: async ({ name, email, password }) => signUpWithCredentials(email, password, name),
 }

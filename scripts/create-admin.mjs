@@ -1,15 +1,11 @@
 import bcrypt from 'bcryptjs'
 import dotenv from 'dotenv'
-import pg from 'pg'
+import { MongoClient } from 'mongodb'
 
 dotenv.config({ path: './.env' })
 
-const { Pool } = pg
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-})
-
+const mongoUri = process.env.MONGODB_URI
+const dbName = process.env.MONGODB_DB || 'sheilagh_place'
 const emailArg = process.argv[2]
 const passwordArg = process.argv[3]
 
@@ -18,39 +14,52 @@ if (!emailArg || !passwordArg) {
   process.exit(1)
 }
 
+if (!mongoUri) {
+  console.error('MONGODB_URI is not configured. Add your MongoDB connection string to .env before creating an admin account.')
+  process.exit(1)
+}
+
 async function createAdmin() {
+  const client = new MongoClient(mongoUri)
+
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS admin_users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        name TEXT,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      );
-    `)
+    await client.connect()
+    const db = client.db(dbName)
+    const collection = db.collection('admin_users')
+    await collection.createIndex({ email: 1 }, { unique: true })
 
     const email = emailArg.trim().toLowerCase()
     const name = email.split('@')[0]
     const passwordHash = await bcrypt.hash(passwordArg, 12)
 
-    const result = await pool.query(
-      `INSERT INTO admin_users (name, email, password_hash)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (email) DO UPDATE SET
-         password_hash = EXCLUDED.password_hash,
-         name = EXCLUDED.name
-       RETURNING id, email, name`,
-      [name, email, passwordHash],
-    )
+    const existingUser = await collection.findOne({ email })
 
-    console.log('Admin account created or updated:')
-    console.log(result.rows[0])
+    if (existingUser) {
+      await collection.updateOne(
+        { _id: existingUser._id },
+        { $set: { name, passwordHash, updatedAt: new Date() } },
+      )
+
+      console.log('Admin account updated:')
+      console.log({ id: existingUser._id.toString(), email, name })
+      return
+    }
+
+    const result = await collection.insertOne({
+      name,
+      email,
+      passwordHash,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    console.log('Admin account created:')
+    console.log({ id: result.insertedId.toString(), email, name })
   } catch (error) {
     console.error('Failed to create admin user:', error.message)
     process.exitCode = 1
   } finally {
-    await pool.end()
+    await client.close()
   }
 }
 
