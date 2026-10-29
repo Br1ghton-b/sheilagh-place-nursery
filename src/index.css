@@ -1,0 +1,54 @@
+/* =================================================================
+   index.css – Saratov Kindergarten-inspired base styles
+   ================================================================= */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Nunito:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Saratov colour palette */
+  --primary:        #1a3c6e;   /* deep navy */
+  --primary-dark:   #0f2548;
+  --accent-orange:  #FF6B35;   /* primary accent */
+  --accent-yellow:  #FFD000;   /* secondary accent */
+  --accent-blue:    #4AA8FF;   /* tertiary */
+  --accent-green:   #4CAF50;   /* quaternary */
+  --accent-pink:    #FF6B9D;   /* quinary */
+  --accent:         #FF6B35;   /* main CTA accent */
+  --accent-hover:   #e55a28;
+  --white:          #ffffff;
+  --light-bg:       #f5f8fc;
+  --cream:          #FFF9F0;
+  --text:           #2C3E50;
+  --text-light:     #777777;
+  --border:         #e8ecf0;
+
+  font-family: 'Poppins', 'Segoe UI', sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  color: var(--text);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--white);
+}
+
+img { max-width: 100%; display: block; }
+
+button, input, textarea { font: inherit; }
+
+#root { min-height: 100vh; }
+
+a { color: inherit; text-decoration: none; }
+
+h1, h2, h3, h4, p { margin-top: 0; }
+
+ul { list-style: none; padding: 0; margin: 0; }
