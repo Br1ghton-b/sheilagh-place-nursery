@@ -148,6 +148,7 @@ const defaultNewsletterEntries = [
 ]
 
 const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const CONTENT_POLL_INTERVAL_MS = 8000
 
 const adminStorageKeys = {
   enquiries: 'sheilagh-enquiries',
@@ -416,9 +417,11 @@ function AdminDashboardPage() {
     }
 
     loadContent()
+    const intervalId = window.setInterval(loadContent, CONTENT_POLL_INTERVAL_MS)
 
     return () => {
       isMounted = false
+      window.clearInterval(intervalId)
     }
   }, [])
 
@@ -1285,7 +1288,34 @@ function Layout({ children }) {
 function HomePage() {
   const [expandedGallery, setExpandedGallery] = useState(false)
   const [selectedImage, setSelectedImage] = useState(null)
-  const visibleGalleryItems = expandedGallery ? galleryItems : galleryItems.slice(0, 3)
+  const [galleryFeed, setGalleryFeed] = useState(galleryItems)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadGallery = async () => {
+      try {
+        const items = await fetchContentList('gallery', galleryItems)
+        if (isMounted) {
+          setGalleryFeed(items)
+        }
+      } catch {
+        if (isMounted) {
+          setGalleryFeed(galleryItems)
+        }
+      }
+    }
+
+    loadGallery()
+    const intervalId = window.setInterval(loadGallery, CONTENT_POLL_INTERVAL_MS)
+
+    return () => {
+      isMounted = false
+      window.clearInterval(intervalId)
+    }
+  }, [])
+
+  const visibleGalleryItems = expandedGallery ? galleryFeed : galleryFeed.slice(0, 3)
 
   return (
     <>
@@ -1507,7 +1537,7 @@ function HomePage() {
             <h2 className="section-title">Moments From Our Nursery</h2>
           </div>
 
-          {galleryItems.length > 3 && (
+          {galleryFeed.length > 3 && (
             <button
               type="button"
               className="gallery-toggle"
@@ -1740,9 +1770,11 @@ function EventsPage() {
     }
 
     loadPublicContent()
+    const intervalId = window.setInterval(loadPublicContent, CONTENT_POLL_INTERVAL_MS)
 
     return () => {
       isMounted = false
+      window.clearInterval(intervalId)
     }
   }, [])
 
