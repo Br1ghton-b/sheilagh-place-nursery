@@ -200,6 +200,31 @@
   color: var(--primary);
   border-color: var(--white);
 }
+.advance-status-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 9px 16px;
+  border-radius: 50px;
+  border: 2px solid #0d2340;
+  background: #0d2340;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: none;
+}
+.advance-status-button:hover,
+.advance-status-button:focus,
+.advance-status-button:active {
+  background: #0d2340;
+  border-color: #0d2340;
+  color: #ffffff;
+  transform: none;
+  box-shadow: none;
+}
 .btn-outline-accent {
   background: transparent;
   color: var(--accent);

@@ -929,7 +929,7 @@ function AdminDashboardPage() {
                   </div>
                   <div className="admin-list-actions">
                     <span className={`status-pill status-${enquiry.status || 'new'}`}>{enquiry.status || 'new'}</span>
-                    <button type="button" className="secondary-button" onClick={() => handleReviewEnquiry(enquiry.id)}>
+                    <button type="button" className="advance-status-button" onClick={() => handleReviewEnquiry(enquiry.id)}>
                       {enquiry.status === 'archived' ? 'Reset' : 'Advance status'}
                     </button>
                   </div>
