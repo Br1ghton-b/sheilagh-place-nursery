@@ -8,6 +8,24 @@ const jwtSecret = process.env.JWT_SECRET || 'dev-change-this-secret'
 
 let mongoClient = null
 let adminUsersCollection = null
+const contentCollectionNames = {
+  events: 'content_events',
+  newsletters: 'content_newsletters',
+  gallery: 'content_gallery',
+  enquiries: 'content_enquiries',
+}
+
+function sanitizeDocument(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const { _id, ...rest } = entry
+  return {
+    ...rest,
+    id: rest.id ?? String(_id),
+  }
+}
 
 async function ensureAdminCollection() {
   if (!mongoUri) {
@@ -139,7 +157,10 @@ export async function handler(event) {
   }
 
   const path = event.path || '/'
-  const action = path.replace(/^.*\/api\//, '').replace(/^.*\//, '') || 'health'
+  const normalizedPath = path.replace(/\/+$/, '') || '/'
+  const action = normalizedPath.includes('/api/content/')
+    ? 'content'
+    : normalizedPath.replace(/^.*\/api\//, '').replace(/^.*\//, '') || 'health'
 
   if (action === 'health') {
     return respond(200, { ok: true, message: 'Admin auth function is running' })
@@ -300,6 +321,103 @@ export async function handler(event) {
     } catch {
       return respond(401, { error: 'Invalid or expired session' })
     }
+  }
+
+  if (action === 'content') {
+    const rawPath = event.path || '/'
+    const match = rawPath.match(/\/api\/content\/([^/?]+)(?:\/(.*))?$/)
+
+    if (!match) {
+      return respond(404, { error: 'Content route not found' })
+    }
+
+    const type = match[1]
+    const itemId = match[2] ? decodeURIComponent(match[2]) : null
+    const contentType = contentCollectionNames[type]
+
+    if (!contentType) {
+      return respond(400, { error: 'Unsupported content type' })
+    }
+
+    const db = await ensureAdminCollection().then((collection) => collection.db)
+    const collection = db.collection(contentType)
+
+    if (event.httpMethod === 'GET') {
+      const items = await collection.find({}).sort({ _id: -1 }).toArray()
+      return respond(200, {
+        ok: true,
+        items: items.map((entry) => sanitizeDocument(entry)),
+      })
+    }
+
+    if (event.httpMethod === 'POST') {
+      const payload = getRequestBody(event)
+      if (type === 'enquiries') {
+        const created = { ...payload, id: payload.id ?? Date.now() }
+        await collection.insertOne(created)
+        return respond(201, { ok: true, item: sanitizeDocument(created) })
+      }
+
+      const cookies = parseCookies(event.headers.cookie)
+      const token = cookies.auth_token
+      if (!token) {
+        return respond(401, { error: 'Not authenticated' })
+      }
+
+      try {
+        jwt.verify(token, jwtSecret)
+      } catch {
+        return respond(401, { error: 'Invalid or expired session' })
+      }
+
+      const created = { ...payload, id: payload.id ?? Date.now() }
+      await collection.insertOne(created)
+      return respond(201, { ok: true, item: sanitizeDocument(created) })
+    }
+
+    if (event.httpMethod === 'PUT') {
+      const cookies = parseCookies(event.headers.cookie)
+      const token = cookies.auth_token
+      if (!token) {
+        return respond(401, { error: 'Not authenticated' })
+      }
+
+      try {
+        jwt.verify(token, jwtSecret)
+      } catch {
+        return respond(401, { error: 'Invalid or expired session' })
+      }
+
+      const payload = getRequestBody(event)
+      const nextId = itemId || String(payload.id ?? Date.now())
+      const nextItem = { ...payload, id: nextId }
+      await collection.updateOne({ id: nextId }, { $set: nextItem }, { upsert: true })
+      const saved = await collection.findOne({ id: nextId }) || nextItem
+      return respond(200, { ok: true, item: sanitizeDocument(saved) })
+    }
+
+    if (event.httpMethod === 'DELETE') {
+      const cookies = parseCookies(event.headers.cookie)
+      const token = cookies.auth_token
+      if (!token) {
+        return respond(401, { error: 'Not authenticated' })
+      }
+
+      try {
+        jwt.verify(token, jwtSecret)
+      } catch {
+        return respond(401, { error: 'Invalid or expired session' })
+      }
+
+      if (!itemId) {
+        return respond(400, { error: 'Item id is required' })
+      }
+
+      const result = await collection.deleteOne({ id: itemId })
+      return respond(200, { ok: true, deleted: result.deletedCount > 0 })
+    }
+
+    return respond(405, { error: 'Method not allowed' })
   }
 
   if (action === 'update-account') {
