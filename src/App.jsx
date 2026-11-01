@@ -1,7 +1,7 @@
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { authClient } from './auth'
+import { apiRequest, authClient } from './auth'
 
 function FacebookIcon() {
   return (
@@ -177,6 +177,30 @@ const defaultEnquiries = [
   },
 ]
 
+async function fetchContentList(type, fallback) {
+  try {
+    const result = await apiRequest(`/api/content/${type}`)
+    return Array.isArray(result?.items) ? result.items : fallback
+  } catch {
+    return fallback
+  }
+}
+
+async function saveContentItem(type, payload, method = 'POST', itemId = '') {
+  const url = itemId ? `/api/content/${type}/${itemId}` : `/api/content/${type}`
+  const result = await apiRequest(url, {
+    method,
+    body: JSON.stringify(payload),
+  })
+
+  return result?.item ?? payload
+}
+
+async function removeContentItem(type, itemId) {
+  const result = await apiRequest(`/api/content/${type}/${itemId}`, { method: 'DELETE' })
+  return result?.deleted ?? true
+}
+
 function readStoredList(storageKey, fallback) {
   try {
     const savedValue = window.localStorage.getItem(storageKey)
@@ -339,10 +363,10 @@ function AdminDashboardPage() {
   const navigate = useNavigate()
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [enquiries, setEnquiries] = useState(() => readStoredList(adminStorageKeys.enquiries, defaultEnquiries))
-  const [events, setEvents] = useState(() => readStoredList(adminStorageKeys.events, initialEvents))
-  const [gallery, setGallery] = useState(() => readStoredList(adminStorageKeys.gallery, galleryItems))
-  const [newsletterEntries, setNewsletterEntries] = useState(() => readStoredList(adminStorageKeys.newsletters, defaultNewsletterEntries))
+  const [enquiries, setEnquiries] = useState([])
+  const [events, setEvents] = useState([])
+  const [gallery, setGallery] = useState([])
+  const [newsletterEntries, setNewsletterEntries] = useState([])
   const [auditLog, setAuditLog] = useState(() => readStoredList('sheilagh-audit-log', [
     { id: 1, message: 'Dashboard initialized for school administration', timestamp: new Date().toISOString() },
   ]))
@@ -360,6 +384,43 @@ function AdminDashboardPage() {
   const [editingNewsletterId, setEditingNewsletterId] = useState(null)
   const [statusMessage, setStatusMessage] = useState('')
   const [filter, setFilter] = useState('all')
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadContent = async () => {
+      try {
+        const [nextEnquiries, nextEvents, nextGallery, nextNewsletters] = await Promise.all([
+          fetchContentList('enquiries', defaultEnquiries),
+          fetchContentList('events', initialEvents),
+          fetchContentList('gallery', galleryItems),
+          fetchContentList('newsletters', defaultNewsletterEntries),
+        ])
+
+        if (!isMounted) {
+          return
+        }
+
+        setEnquiries(nextEnquiries)
+        setEvents(nextEvents)
+        setGallery(nextGallery)
+        setNewsletterEntries(nextNewsletters)
+      } catch {
+        if (isMounted) {
+          setEnquiries(defaultEnquiries)
+          setEvents(initialEvents)
+          setGallery(galleryItems)
+          setNewsletterEntries(defaultNewsletterEntries)
+        }
+      }
+    }
+
+    loadContent()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const stats = useMemo(() => {
     const newEnquiries = enquiries.filter((item) => item.status === 'new').length
@@ -487,22 +548,39 @@ function AdminDashboardPage() {
     navigate('/admin/login', { replace: true })
   }
 
-  const handleReviewEnquiry = (id) => {
+  const handleReviewEnquiry = async (id) => {
+    const target = enquiries.find((enquiry) => enquiry.id === id)
+    if (!target) {
+      return
+    }
+
     const flow = ['new', 'reviewed', 'contacted', 'archived', 'new']
+    const currentIndex = flow.indexOf(target.status || 'new')
+    const nextStatus = flow[(currentIndex + 1) % flow.length]
 
-    const updated = enquiries.map((enquiry) => {
-      if (enquiry.id !== id) {
-        return enquiry
-      }
+    try {
+      const response = await apiRequest(`/api/content/enquiries/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: nextStatus }),
+      })
 
-      const currentIndex = flow.indexOf(enquiry.status || 'new')
-      const nextStatus = flow[(currentIndex + 1) % flow.length]
-      return { ...enquiry, status: nextStatus }
-    })
+      const updated = enquiries.map((enquiry) => {
+        if (enquiry.id !== id) {
+          return enquiry
+        }
 
-    setEnquiries(updated)
-    window.localStorage.setItem(adminStorageKeys.enquiries, JSON.stringify(updated))
-    persistAudit('Enquiry status updated')
+        return { ...enquiry, ...(response?.item || {}), status: nextStatus }
+      })
+
+      setEnquiries(updated)
+      persistAudit('Enquiry status updated')
+    } catch {
+      const updated = enquiries.map((enquiry) => (
+        enquiry.id === id ? { ...enquiry, status: nextStatus } : enquiry
+      ))
+      setEnquiries(updated)
+      persistAudit('Enquiry status updated')
+    }
   }
 
   const handleEventChange = (event) => {
@@ -510,7 +588,7 @@ function AdminDashboardPage() {
     setEventForm((current) => ({ ...current, [name]: value }))
   }
 
-  const handleEventSubmit = (event) => {
+  const handleEventSubmit = async (event) => {
     event.preventDefault()
 
     if (!eventForm.title || !eventForm.date || !eventForm.description) {
@@ -518,33 +596,27 @@ function AdminDashboardPage() {
       return
     }
 
-    const sorted = [...events]
-    let nextEvents
-
-    if (editingEventId) {
-      nextEvents = sorted.map((entry) => (
-        entry.id === editingEventId
-          ? { ...entry, title: eventForm.title.trim(), date: eventForm.date, description: eventForm.description.trim() }
-          : entry
-      ))
-      setStatusMessage('School event updated successfully.')
-      persistAudit(`Event edited: ${eventForm.title.trim()}`)
-    } else {
-      const nextEvent = {
-        id: Date.now(),
-        title: eventForm.title.trim(),
-        date: eventForm.date,
-        description: eventForm.description.trim(),
-      }
-      nextEvents = [...sorted, nextEvent].sort((left, right) => new Date(left.date) - new Date(right.date))
-      setStatusMessage('School event added successfully.')
-      persistAudit(`Event added: ${nextEvent.title}`)
+    const payload = {
+      id: editingEventId ?? Date.now(),
+      title: eventForm.title.trim(),
+      date: eventForm.date,
+      description: eventForm.description.trim(),
     }
 
-    setEvents(nextEvents)
-    window.localStorage.setItem(adminStorageKeys.events, JSON.stringify(nextEvents))
-    setEventForm({ title: '', date: '', description: '' })
-    setEditingEventId(null)
+    try {
+      const savedItem = await saveContentItem('events', payload, editingEventId ? 'PUT' : 'POST', editingEventId ? String(editingEventId) : '')
+      const nextEvents = editingEventId
+        ? events.map((entry) => (entry.id === editingEventId ? savedItem : entry))
+        : [...events, savedItem].sort((left, right) => new Date(left.date) - new Date(right.date))
+
+      setEvents(nextEvents)
+      setEventForm({ title: '', date: '', description: '' })
+      setEditingEventId(null)
+      setStatusMessage(editingEventId ? 'School event updated successfully.' : 'School event added successfully.')
+      persistAudit(editingEventId ? `Event edited: ${savedItem.title}` : `Event added: ${savedItem.title}`)
+    } catch {
+      setStatusMessage('Unable to save the school event right now. Please try again.')
+    }
   }
 
   const handleEditEvent = (entry) => {
@@ -557,12 +629,16 @@ function AdminDashboardPage() {
     setStatusMessage('Editing existing school event.')
   }
 
-  const handleDeleteEvent = (eventId) => {
-    const nextEvents = events.filter((entry) => entry.id !== eventId)
-    setEvents(nextEvents)
-    window.localStorage.setItem(adminStorageKeys.events, JSON.stringify(nextEvents))
-    persistAudit('Event removed from the school calendar')
-    setStatusMessage('School event removed.')
+  const handleDeleteEvent = async (eventId) => {
+    try {
+      await removeContentItem('events', String(eventId))
+      const nextEvents = events.filter((entry) => entry.id !== eventId)
+      setEvents(nextEvents)
+      persistAudit('Event removed from the school calendar')
+      setStatusMessage('School event removed.')
+    } catch {
+      setStatusMessage('Unable to delete the selected school event.')
+    }
 
     if (editingEventId === eventId) {
       setEditingEventId(null)
@@ -575,7 +651,7 @@ function AdminDashboardPage() {
     setNewsletterForm((current) => ({ ...current, [name]: value }))
   }
 
-  const handleNewsletterSubmit = (event) => {
+  const handleNewsletterSubmit = async (event) => {
     event.preventDefault()
 
     const term = newsletterForm.term.trim()
@@ -601,16 +677,20 @@ function AdminDashboardPage() {
       closing,
     }
 
-    const nextNewsletterEntries = editingNewsletterId
-      ? newsletterEntries.map((entry) => (entry.id === editingNewsletterId ? payload : entry))
-      : [payload, ...newsletterEntries]
+    try {
+      const savedItem = await saveContentItem('newsletters', payload, editingNewsletterId ? 'PUT' : 'POST', editingNewsletterId ? String(editingNewsletterId) : '')
+      const nextNewsletterEntries = editingNewsletterId
+        ? newsletterEntries.map((entry) => (entry.id === editingNewsletterId ? savedItem : entry))
+        : [savedItem, ...newsletterEntries]
 
-    setNewsletterEntries(nextNewsletterEntries)
-    window.localStorage.setItem(adminStorageKeys.newsletters, JSON.stringify(nextNewsletterEntries))
-    setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
-    setEditingNewsletterId(null)
-    setStatusMessage(editingNewsletterId ? 'Newsletter updated successfully.' : 'Newsletter added successfully.')
-    persistAudit(editingNewsletterId ? `Newsletter updated: ${title}` : `Newsletter added: ${title}`)
+      setNewsletterEntries(nextNewsletterEntries)
+      setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+      setEditingNewsletterId(null)
+      setStatusMessage(editingNewsletterId ? 'Newsletter updated successfully.' : 'Newsletter added successfully.')
+      persistAudit(editingNewsletterId ? `Newsletter updated: ${savedItem.title}` : `Newsletter added: ${savedItem.title}`)
+    } catch {
+      setStatusMessage('Unable to save the newsletter right now. Please try again.')
+    }
   }
 
   const handleEditNewsletter = (entry) => {
@@ -626,12 +706,16 @@ function AdminDashboardPage() {
     setStatusMessage('Editing existing newsletter.')
   }
 
-  const handleDeleteNewsletter = (newsletterId) => {
-    const nextNewsletterEntries = newsletterEntries.filter((entry) => entry.id !== newsletterId)
-    setNewsletterEntries(nextNewsletterEntries)
-    window.localStorage.setItem(adminStorageKeys.newsletters, JSON.stringify(nextNewsletterEntries))
-    persistAudit('Newsletter removed from the school updates')
-    setStatusMessage('Newsletter removed.')
+  const handleDeleteNewsletter = async (newsletterId) => {
+    try {
+      await removeContentItem('newsletters', String(newsletterId))
+      const nextNewsletterEntries = newsletterEntries.filter((entry) => entry.id !== newsletterId)
+      setNewsletterEntries(nextNewsletterEntries)
+      persistAudit('Newsletter removed from the school updates')
+      setStatusMessage('Newsletter removed.')
+    } catch {
+      setStatusMessage('Unable to delete the selected newsletter.')
+    }
 
     if (editingNewsletterId === newsletterId) {
       setEditingNewsletterId(null)
@@ -669,7 +753,7 @@ function AdminDashboardPage() {
     reader.readAsDataURL(file)
   }
 
-  const handleGallerySubmit = (event) => {
+  const handleGallerySubmit = async (event) => {
     event.preventDefault()
 
     const src = galleryForm.src.trim()
@@ -680,20 +764,32 @@ function AdminDashboardPage() {
       return
     }
 
-    const nextGallery = [{ src, alt }, ...gallery]
-    setGallery(nextGallery)
-    window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
-    setGalleryForm({ src: '', alt: '' })
-    setStatusMessage('Gallery content updated.')
-    persistAudit(`Gallery image added: ${alt}`)
+    try {
+      const savedItem = await saveContentItem('gallery', { id: Date.now(), src, alt }, 'POST')
+      setGallery((current) => [savedItem, ...current])
+      setGalleryForm({ src: '', alt: '' })
+      setStatusMessage('Gallery content updated.')
+      persistAudit(`Gallery image added: ${alt}`)
+    } catch {
+      setStatusMessage('Unable to add the new gallery image right now.')
+    }
   }
 
-  const handleGalleryDelete = (index) => {
-    const nextGallery = gallery.filter((_, itemIndex) => itemIndex !== index)
-    setGallery(nextGallery)
-    window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
-    setStatusMessage('Gallery item removed.')
-    persistAudit('Gallery image removed')
+  const handleGalleryDelete = async (index) => {
+    const item = gallery[index]
+    if (!item) {
+      return
+    }
+
+    try {
+      await removeContentItem('gallery', String(item.id ?? index))
+      const nextGallery = gallery.filter((_, itemIndex) => itemIndex !== index)
+      setGallery(nextGallery)
+      setStatusMessage('Gallery item removed.')
+      persistAudit('Gallery image removed')
+    } catch {
+      setStatusMessage('Unable to remove the selected gallery item.')
+    }
   }
 
   const handleGalleryMove = (index, direction) => {
@@ -705,21 +801,31 @@ function AdminDashboardPage() {
     const nextGallery = [...gallery]
     ;[nextGallery[index], nextGallery[nextIndex]] = [nextGallery[nextIndex], nextGallery[index]]
     setGallery(nextGallery)
-    window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
     persistAudit('Gallery order updated')
   }
 
-  const handleGalleryRefresh = () => {
+  const handleGalleryRefresh = async () => {
     const nextGallery = [...gallery]
     const available = galleryItems.filter((item) => !nextGallery.some((entry) => entry.src === item.src))
     const freshItem = available[0] || galleryItems[0]
 
-    if (freshItem) {
-      nextGallery.unshift({ ...freshItem, alt: `${freshItem.alt} (Updated)` })
-      setGallery(nextGallery)
-      window.localStorage.setItem(adminStorageKeys.gallery, JSON.stringify(nextGallery))
+    if (!freshItem) {
+      return
+    }
+
+    try {
+      const savedItem = await saveContentItem('gallery', {
+        id: Date.now(),
+        ...freshItem,
+        alt: `${freshItem.alt} (Updated)`,
+      }, 'POST')
+
+      const updatedGallery = [savedItem, ...nextGallery]
+      setGallery(updatedGallery)
       setStatusMessage('Gallery content refreshed.')
       persistAudit('Gallery refreshed with a new item')
+    } catch {
+      setStatusMessage('Unable to refresh the gallery content right now.')
     }
   }
 
@@ -1606,18 +1712,50 @@ function AboutPage() {
 function EventsPage() {
   const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 7, 1))
   const [selectedDate, setSelectedDate] = useState('2026-08-28')
-  const [newsletterEntries, setNewsletterEntries] = useState(() => readStoredList(adminStorageKeys.newsletters, defaultNewsletterEntries))
+  const [events, setEvents] = useState([])
+  const [newsletterEntries, setNewsletterEntries] = useState([])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadPublicContent = async () => {
+      try {
+        const [nextEvents, nextNewsletters] = await Promise.all([
+          fetchContentList('events', initialEvents),
+          fetchContentList('newsletters', defaultNewsletterEntries),
+        ])
+
+        if (!isMounted) {
+          return
+        }
+
+        setEvents(nextEvents)
+        setNewsletterEntries(nextNewsletters)
+      } catch {
+        if (isMounted) {
+          setEvents(initialEvents)
+          setNewsletterEntries(defaultNewsletterEntries)
+        }
+      }
+    }
+
+    loadPublicContent()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const eventMap = useMemo(() => {
     const map = new Map()
-    initialEvents.forEach((event) => {
+    events.forEach((event) => {
       if (!map.has(event.date)) {
         map.set(event.date, [])
       }
       map.get(event.date).push(event)
     })
     return map
-  }, [])
+  }, [events])
 
   const monthStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1)
   const firstDayIndex = monthStart.getDay()
@@ -1759,35 +1897,51 @@ function ContactPage() {
     }))
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
 
     const cleanName = formData.name.trim() || 'Parent'
     const cleanEmail = formData.email.trim()
     const cleanPhone = formData.phone.trim()
     const cleanMessage = formData.message.trim() || 'No message provided.'
-
-    const enquiries = readStoredList(adminStorageKeys.enquiries, defaultEnquiries)
-    const nextEnquiries = [{
-      id: Date.now(),
-      name: cleanName,
-      email: cleanEmail,
-      phone: cleanPhone,
-      message: cleanMessage,
-      status: 'new',
-      submittedAt: new Date().toISOString(),
-    }, ...enquiries]
-
-    window.localStorage.setItem(adminStorageKeys.enquiries, JSON.stringify(nextEnquiries))
-
     const text = `Hello Sheilagh's Place Nursery,%0A%0A` +
       `Parent name: ${encodeURIComponent(cleanName)}%0A` +
       `Email: ${encodeURIComponent(cleanEmail || 'Not provided')}%0A` +
       `Phone: ${encodeURIComponent(cleanPhone || 'Not provided')}%0A%0A` +
       `Enquiry details:%0A${encodeURIComponent(cleanMessage)}`
 
-    window.open(`https://wa.me/27722344114?text=${text}`, '_blank', 'noopener,noreferrer')
-    setFormData({ name: '', email: '', phone: '', message: '' })
+    try {
+      await apiRequest('/api/content/enquiries', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: Date.now(),
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhone,
+          message: cleanMessage,
+          status: 'new',
+          submittedAt: new Date().toISOString(),
+        }),
+      })
+
+      window.open(`https://wa.me/27722344114?text=${text}`, '_blank', 'noopener,noreferrer')
+      setFormData({ name: '', email: '', phone: '', message: '' })
+    } catch {
+      const enquiries = readStoredList(adminStorageKeys.enquiries, defaultEnquiries)
+      const nextEnquiries = [{
+        id: Date.now(),
+        name: cleanName,
+        email: cleanEmail,
+        phone: cleanPhone,
+        message: cleanMessage,
+        status: 'new',
+        submittedAt: new Date().toISOString(),
+      }, ...enquiries]
+
+      window.localStorage.setItem(adminStorageKeys.enquiries, JSON.stringify(nextEnquiries))
+      window.open(`https://wa.me/27722344114?text=${text}`, '_blank', 'noopener,noreferrer')
+      setFormData({ name: '', email: '', phone: '', message: '' })
+    }
   }
 
   return (

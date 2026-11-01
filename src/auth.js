@@ -12,7 +12,7 @@ const API_BASE_URL = (() => {
   return configured
 })()
 
-async function request(path, options = {}) {
+export async function apiRequest(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
@@ -36,7 +36,7 @@ async function request(path, options = {}) {
 
 async function signInWithCredentials(email, password) {
   try {
-    const result = await request('/api/login', {
+    const result = await apiRequest('/api/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     })
@@ -58,7 +58,7 @@ async function signInWithCredentials(email, password) {
 
 async function signUpWithCredentials(email, password, name) {
   try {
-    const result = await request('/api/create-admin', {
+    const result = await apiRequest('/api/create-admin', {
       method: 'POST',
       body: JSON.stringify({ email, password, name }),
     })
@@ -81,7 +81,7 @@ async function signUpWithCredentials(email, password, name) {
 export const authClient = {
   async getSession() {
     try {
-      const result = await request('/api/session')
+      const result = await apiRequest('/api/session')
       return {
         data: {
           session: Boolean(result?.ok && result?.user),
@@ -95,7 +95,7 @@ export const authClient = {
 
   async signOut() {
     try {
-      await request('/api/logout', { method: 'POST' })
+      await apiRequest('/api/logout', { method: 'POST' })
       return { data: { ok: true } }
     } catch (_error) {
       return { data: { ok: true } }
@@ -104,7 +104,7 @@ export const authClient = {
 
   async updateAccount({ currentPassword, newPassword, email, name }) {
     try {
-      const result = await request('/api/admin/update-account', {
+      const result = await apiRequest('/api/admin/update-account', {
         method: 'POST',
         body: JSON.stringify({ currentPassword, newPassword, email, name }),
       })

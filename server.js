@@ -16,8 +16,14 @@ const mongoDbName = process.env.MONGODB_DB || 'sheilagh_place'
 
 let mongoClient = null
 let adminUsersCollection = null
+const contentCollectionNames = {
+  events: 'content_events',
+  newsletters: 'content_newsletters',
+  gallery: 'content_gallery',
+  enquiries: 'content_enquiries',
+}
 
-async function ensureAdminCollection() {
+async function ensureDatabaseCollections() {
   if (!mongoUri) {
     throw new Error('MONGODB_URI is not configured. Add your MongoDB connection string to your .env file.')
   }
@@ -25,11 +31,49 @@ async function ensureAdminCollection() {
   if (!mongoClient) {
     mongoClient = new MongoClient(mongoUri)
     await mongoClient.connect()
-    const db = mongoClient.db(mongoDbName)
+  }
+
+  const db = mongoClient.db(mongoDbName)
+
+  if (!adminUsersCollection) {
     adminUsersCollection = db.collection('admin_users')
     await adminUsersCollection.createIndex({ email: 1 }, { unique: true })
   }
 
+  for (const collectionName of Object.values(contentCollectionNames)) {
+    const collection = db.collection(collectionName)
+    await collection.createIndex({ id: 1 }, { unique: true })
+  }
+
+  return db
+}
+
+async function getContentCollection(type) {
+  const normalizedType = String(type || '').trim().toLowerCase()
+  const collectionName = contentCollectionNames[normalizedType]
+
+  if (!collectionName) {
+    throw new Error('Unsupported content type')
+  }
+
+  const db = await ensureDatabaseCollections()
+  return db.collection(collectionName)
+}
+
+function sanitizeDocument(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const { _id, ...rest } = entry
+  return {
+    ...rest,
+    id: rest.id ?? String(_id),
+  }
+}
+
+async function ensureAdminCollection() {
+  await ensureDatabaseCollections()
   return adminUsersCollection
 }
 
@@ -292,6 +336,94 @@ app.post('/api/admin/update-account', requireAdmin, async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       error: 'Unable to update admin account',
+      details: error.message,
+    })
+  }
+})
+
+app.get('/api/content/:type', async (req, res) => {
+  try {
+    const collection = await getContentCollection(req.params.type)
+    const items = await collection.find({}).sort({ _id: -1 }).toArray()
+    return res.json({
+      ok: true,
+      items: items.map((entry) => sanitizeDocument(entry)),
+    })
+  } catch (error) {
+    return res.status(400).json({
+      error: 'Could not load content',
+      details: error.message,
+    })
+  }
+})
+
+app.post('/api/content/:type', async (req, res, next) => {
+  if (req.params.type === 'enquiries') {
+    return next()
+  }
+
+  return requireAdmin(req, res, next)
+}, async (req, res) => {
+  try {
+    const collection = await getContentCollection(req.params.type)
+    const payload = req.body || {}
+    const nextItem = {
+      ...payload,
+      id: payload.id ?? Date.now(),
+    }
+
+    await collection.insertOne(nextItem)
+    return res.status(201).json({ ok: true, item: sanitizeDocument(nextItem) })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Could not save content',
+      details: error.message,
+    })
+  }
+})
+
+app.put('/api/content/:type/:id', requireAdmin, async (req, res) => {
+  try {
+    const collection = await getContentCollection(req.params.type)
+    const payload = req.body || {}
+    const itemId = String(req.params.id)
+    const nextItem = {
+      ...payload,
+      id: itemId,
+    }
+
+    await collection.updateOne(
+      { id: itemId },
+      { $set: nextItem },
+      { upsert: true },
+    )
+
+    const savedDocument = await collection.findOne({ id: itemId })
+    return res.json({
+      ok: true,
+      item: sanitizeDocument(savedDocument || nextItem),
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Could not update content',
+      details: error.message,
+    })
+  }
+})
+
+app.delete('/api/content/:type/:id', requireAdmin, async (req, res) => {
+  try {
+    const collection = await getContentCollection(req.params.type)
+    const itemId = String(req.params.id)
+    const result = await collection.deleteOne({ id: itemId })
+
+    return res.json({
+      ok: true,
+      deleted: result.deletedCount > 0,
+    })
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Could not delete content',
       details: error.message,
     })
   }
