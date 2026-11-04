@@ -244,21 +244,28 @@ function generateApplicationPdf(formData) {
   }
 
   doc.setFillColor(247, 244, 235)
-  doc.rect(0, 0, pageWidth, 88, 'F')
+  doc.rect(0, 0, pageWidth, 96, 'F')
   doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2])
-  doc.line(margin, 88, pageWidth - margin, 88)
+  doc.line(margin, 96, pageWidth - margin, 96)
+
+  doc.setFillColor(69, 55, 30)
+  doc.roundedRect(margin, 18, 42, 42, 10, 10, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(18)
+  doc.text('SP', margin + 13, 46)
 
   doc.setTextColor(30, 30, 30)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(22)
-  doc.text("Sheilagh's Place Nursery", margin, 34)
+  doc.text("Sheilagh's Place Nursery", margin + 58, 34)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(11)
-  doc.text('Enrolment Application', margin, 54)
-  doc.text(`Submitted: ${new Date().toLocaleString()}`, pageWidth - margin - 130, 54)
+  doc.text('Early Learning • Enrolment Application', margin + 58, 52)
+  doc.text(`Submitted: ${new Date().toLocaleString()}`, pageWidth - margin - 160, 52)
 
-  currentY = 108
+  currentY = 114
 
   writeSection('1. Child details', [
     ['Application type', formData.applicationType],
@@ -329,6 +336,7 @@ function generateApplicationPdf(formData) {
   const signatureY = Math.min(pageHeight - 70, currentY + 36)
   const signatureX = pageWidth - 180
   doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2])
+  doc.setLineWidth(1.2)
   doc.line(signatureX, signatureY, signatureX + 120, signatureY)
   doc.setFont('helvetica', 'italic')
   doc.setFontSize(9)
@@ -336,7 +344,17 @@ function generateApplicationPdf(formData) {
 
   doc.setDrawColor(160, 160, 160)
   doc.line(margin, signatureY, margin + 120, signatureY)
+  doc.setFont('helvetica', 'normal')
   doc.text('Date', margin, signatureY + 16)
+
+  doc.setFillColor(247, 244, 235)
+  doc.rect(0, pageHeight - 32, pageWidth, 32, 'F')
+  doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2])
+  doc.line(margin, pageHeight - 32, pageWidth - margin, pageHeight - 32)
+  doc.setTextColor(58, 58, 58)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text('Sheilagh\'s Place Nursery | sheilaghcogger@gmail.com | +27 72 234 4114 | sheilaghsplace.co.za', margin, pageHeight - 15)
 
   const fileName = `${(formData.childName || 'application').trim().replace(/\s+/g, '-') || 'application'}.pdf`
   const pdfBlob = doc.output('blob')
