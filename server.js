@@ -21,6 +21,7 @@ const contentCollectionNames = {
   newsletters: 'content_newsletters',
   gallery: 'content_gallery',
   enquiries: 'content_enquiries',
+  applications: 'content_applications',
 }
 
 async function ensureDatabaseCollections() {
@@ -358,7 +359,7 @@ app.get('/api/content/:type', async (req, res) => {
 })
 
 app.post('/api/content/:type', async (req, res, next) => {
-  if (req.params.type === 'enquiries') {
+  if (req.params.type === 'enquiries' || req.params.type === 'applications') {
     return next()
   }
 

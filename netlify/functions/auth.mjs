@@ -13,6 +13,7 @@ const contentCollectionNames = {
   newsletters: 'content_newsletters',
   gallery: 'content_gallery',
   enquiries: 'content_enquiries',
+  applications: 'content_applications',
 }
 
 function sanitizeDocument(entry) {
@@ -57,11 +58,16 @@ async function ensureAdminCollection() {
 
 function getAllowedOrigin(originHeader) {
   const allowedOrigins = new Set([
+    'https://sheilaghsplace.co.za',
+    'https://www.sheilaghsplace.co.za',
     'https://sheilaghsplace.netlify.app',
+    'https://www.sheilaghsplace.netlify.app',
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:3000',
     'http://localhost:4173',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:4173',
   ])
 
   if (!originHeader) {
@@ -82,8 +88,8 @@ function jsonResponse(statusCode, payload, extraHeaders = {}, event = {}) {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': allowedOrigin,
       'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
       'Vary': 'Origin',
       ...extraHeaders,
     },
@@ -352,7 +358,7 @@ export async function handler(event) {
 
     if (event.httpMethod === 'POST') {
       const payload = getRequestBody(event)
-      if (type === 'enquiries') {
+      if (type === 'enquiries' || type === 'applications') {
         const created = { ...payload, id: payload.id ?? Date.now() }
         await collection.insertOne(created)
         return respond(201, { ok: true, item: sanitizeDocument(created) })

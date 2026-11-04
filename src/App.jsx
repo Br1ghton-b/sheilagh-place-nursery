@@ -1,5 +1,6 @@
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
+import { jsPDF } from 'jspdf'
 import './App.css'
 import { apiRequest, authClient } from './auth'
 
@@ -155,6 +156,7 @@ const adminStorageKeys = {
   events: 'sheilagh-events',
   gallery: 'sheilagh-gallery',
   newsletters: 'sheilagh-newsletters',
+  applications: 'sheilagh-applications',
 }
 
 const defaultEnquiries = [
@@ -178,10 +180,115 @@ const defaultEnquiries = [
   },
 ]
 
+const defaultApplications = [
+  {
+    id: 1,
+    applicationType: 'Full-time Daycare',
+    childName: 'Mila Patel',
+    dateOfBirth: '2022-04-14',
+    parentName: 'Aisha Patel',
+    email: 'aisha.patel@example.com',
+    phone: '+27 82 111 2222',
+    status: 'new',
+    submittedAt: '2026-10-12T10:15:00.000Z',
+  },
+]
+
+function openWhatsAppEnquiry(messageText) {
+  const whatsappUrl = `https://wa.me/27722344114?text=${encodeURIComponent(messageText)}`
+  const emailUrl = `mailto:sheilaghcogger@gmail.com?subject=${encodeURIComponent('Enquiry from Sheilagh\'s Place website')}&body=${encodeURIComponent(messageText)}`
+
+  try {
+    const popup = window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+    if (!popup) {
+      window.location.href = emailUrl
+    }
+  } catch {
+    window.location.href = emailUrl
+  }
+}
+
+function openWhatsAppApplication(messageText) {
+  const whatsappUrl = `https://wa.me/27722344114?text=${encodeURIComponent(messageText)}`
+  const emailUrl = `mailto:sheilaghcogger@gmail.com?subject=${encodeURIComponent('Online Application from Sheilagh\'s Place website')}&body=${encodeURIComponent(messageText)}`
+
+  try {
+    const popup = window.open(whatsappUrl, '_blank', 'noopener,noreferrer')
+    if (!popup) {
+      window.location.href = emailUrl
+    }
+  } catch {
+    window.location.href = emailUrl
+  }
+}
+
+function generateApplicationPdf(formData) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+  const margin = 48
+  const pageWidth = doc.internal.pageSize.getWidth()
+  let currentY = 54
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(18)
+  doc.text("Sheilagh's Place Nursery - Application Form", margin, currentY)
+  currentY += 26
+
+  const summaryLines = [
+    `Application type: ${formData.applicationType || 'Not specified'}`,
+    `Child name: ${formData.childName || 'Not provided'}`,
+    `Date of birth: ${formData.dateOfBirth || 'Not provided'}`,
+    `Parent / guardian: ${formData.parentName || 'Not provided'}`,
+    `Email: ${formData.email || 'Not provided'}`,
+    `Phone: ${formData.phone || 'Not provided'}`,
+    `Emergency contact: ${formData.emergencyName || 'Not provided'} | ${formData.emergencyPhone || 'Not provided'}`,
+    `Allergies / medical concerns: ${formData.medicalConcerns || 'None noted'}`,
+    `Medical aid / doctor: ${formData.medicalAid || 'Not provided'}`,
+    `School fees / stationery: ${formData.feesInfo || 'Not provided'}`,
+  ]
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+
+  summaryLines.forEach((line) => {
+    if (currentY > 760) {
+      doc.addPage()
+      currentY = 54
+    }
+    doc.text(line, margin, currentY)
+    currentY += 18
+  })
+
+  const noteText = 'I agree to the nursery policies, emergency procedures, and the terms stated by Sheilagh\'s Place Nursery.'
+  const wrapped = doc.splitTextToSize(noteText, pageWidth - margin * 2)
+
+  currentY += 6
+  doc.setFont('helvetica', 'bold')
+  doc.text('Declaration', margin, currentY)
+  currentY += 18
+  doc.setFont('helvetica', 'normal')
+  wrapped.forEach((line) => {
+    if (currentY > 760) {
+      doc.addPage()
+      currentY = 54
+    }
+    doc.text(line, margin, currentY)
+    currentY += 14
+  })
+
+  const fileName = `${(formData.childName || 'application').trim().replace(/\s+/g, '-') || 'application'}.pdf`
+  doc.save(fileName)
+}
+
 async function fetchContentList(type, fallback) {
   try {
     const result = await apiRequest(`/api/content/${type}`)
-    return Array.isArray(result?.items) ? result.items : fallback
+    const nextItems = Array.isArray(result?.items) ? result.items : []
+
+    if (nextItems.length === 0) {
+      return fallback
+    }
+
+    return nextItems
   } catch {
     return fallback
   }
@@ -368,6 +475,7 @@ function AdminDashboardPage() {
   const [events, setEvents] = useState([])
   const [gallery, setGallery] = useState([])
   const [newsletterEntries, setNewsletterEntries] = useState([])
+  const [applications, setApplications] = useState([])
   const [auditLog, setAuditLog] = useState(() => readStoredList('sheilagh-audit-log', [
     { id: 1, message: 'Dashboard initialized for school administration', timestamp: new Date().toISOString() },
   ]))
@@ -391,11 +499,12 @@ function AdminDashboardPage() {
 
     const loadContent = async () => {
       try {
-        const [nextEnquiries, nextEvents, nextGallery, nextNewsletters] = await Promise.all([
+        const [nextEnquiries, nextEvents, nextGallery, nextNewsletters, nextApplications] = await Promise.all([
           fetchContentList('enquiries', defaultEnquiries),
           fetchContentList('events', initialEvents),
           fetchContentList('gallery', galleryItems),
           fetchContentList('newsletters', defaultNewsletterEntries),
+          fetchContentList('applications', defaultApplications),
         ])
 
         if (!isMounted) {
@@ -406,12 +515,14 @@ function AdminDashboardPage() {
         setEvents(nextEvents)
         setGallery(nextGallery)
         setNewsletterEntries(nextNewsletters)
+        setApplications(nextApplications)
       } catch {
         if (isMounted) {
           setEnquiries(defaultEnquiries)
           setEvents(initialEvents)
           setGallery(galleryItems)
           setNewsletterEntries(defaultNewsletterEntries)
+          setApplications(defaultApplications)
         }
       }
     }
@@ -430,6 +541,8 @@ function AdminDashboardPage() {
     const reviewedEnquiries = enquiries.filter((item) => item.status === 'reviewed').length
     const contactedEnquiries = enquiries.filter((item) => item.status === 'contacted').length
 
+    const newApplications = applications.filter((item) => item.status === 'new').length
+
     return {
       totalEnquiries: enquiries.length,
       newEnquiries,
@@ -438,9 +551,11 @@ function AdminDashboardPage() {
       totalEvents: events.length,
       totalGallery: gallery.length,
       totalNewsletters: newsletterEntries.length,
+      totalApplications: applications.length,
+      newApplications,
       lastAudit: auditLog[0]?.message || 'No activity yet',
     }
-  }, [auditLog, enquiries, events, gallery, newsletterEntries])
+  }, [applications, auditLog, enquiries, events, gallery, newsletterEntries])
 
   const filteredEnquiries = enquiries.filter((item) => filter === 'all' ? true : item.status === filter)
 
@@ -869,6 +984,10 @@ function AdminDashboardPage() {
           <span>Newsletters</span>
           <strong>{stats.totalNewsletters}</strong>
         </div>
+        <div className="admin-card summary-card">
+          <span>Applications</span>
+          <strong>{stats.totalApplications}</strong>
+        </div>
       </div>
 
       <div className="admin-grid">
@@ -932,6 +1051,31 @@ function AdminDashboardPage() {
                     <button type="button" className="advance-status-button" onClick={() => handleReviewEnquiry(enquiry.id)}>
                       {enquiry.status === 'archived' ? 'Reset' : 'Advance status'}
                     </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="admin-card admin-panel-block wide-card">
+          <h2>Online applications</h2>
+          {applications.length === 0 ? (
+            <p>No online applications have been submitted yet.</p>
+          ) : (
+            <div className="admin-list">
+              {applications.map((application) => (
+                <div key={application.id} className="admin-list-item">
+                  <div>
+                    <strong>{application.childName || 'Unnamed child'}</strong>
+                    <p><span className="application-detail-label">Type:</span> {application.applicationType || 'Not specified'}</p>
+                    <p><span className="application-detail-label">Parent:</span> {application.parentName || application.name || 'Not provided'}</p>
+                    <p><span className="application-detail-label">Contact:</span> {application.email || 'No email'} · {application.phone || 'No phone'}</p>
+                    <p><span className="application-detail-label">Medical:</span> {application.medicalConcerns || 'No allergy or medical notes provided'}</p>
+                    <small>{new Date(application.submittedAt || Date.now()).toLocaleString()}</small>
+                  </div>
+                  <div className="admin-list-actions">
+                    <span className={`status-pill status-${application.status || 'new'}`}>{application.status || 'new'}</span>
                   </div>
                 </div>
               ))}
@@ -1099,6 +1243,15 @@ function AdminDashboardPage() {
 
 function Layout({ children }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [applyHue, setApplyHue] = useState(18)
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setApplyHue(Math.floor(Math.random() * 360))
+    }, 1100)
+
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   return (
     <div className="page-shell">
@@ -1227,6 +1380,7 @@ function Layout({ children }) {
               <NavLink to="/">Home</NavLink>
               <NavLink to="/about">About Us</NavLink>
               <NavLink to="/events">Events</NavLink>
+              <NavLink to="/application">Application</NavLink>
               <NavLink to="/contact">Contact</NavLink>
             </nav>
           </div>
@@ -1281,6 +1435,15 @@ function Layout({ children }) {
         <WhatsAppIcon />
         <span>WhatsApp Us</span>
       </a>
+
+      <NavLink
+        className="apply-float"
+        to="/application"
+        aria-label="Apply to Sheilagh's Place Nursery"
+        style={{ '--apply-button-hue': `${applyHue}` }}
+      >
+        Apply
+      </NavLink>
     </div>
   )
 }
@@ -1495,6 +1658,8 @@ function HomePage() {
             <img
               src="/gallery/WhatsApp Image 2026-10-29 at 10.13.28.jpeg"
               alt="Children harvesting vegetables in the garden"
+              loading="lazy"
+              decoding="async"
             />
           </div>
           <div className="nature-copy">
@@ -1556,7 +1721,7 @@ function HomePage() {
                 setSelectedImage(image)
               }
             }}>
-              <img src={image.src} alt={image.alt} />
+              <img src={image.src} alt={image.alt} loading="lazy" decoding="async" />
               <div className="gallery-overlay">🔍</div>
             </figure>
           ))}
@@ -1569,7 +1734,7 @@ function HomePage() {
             <button type="button" className="gallery-close" onClick={() => setSelectedImage(null)} aria-label="Close gallery image">
               Minimise
             </button>
-            <img src={selectedImage.src} alt={selectedImage.alt} />
+            <img src={selectedImage.src} alt={selectedImage.alt} loading="eager" decoding="async" />
           </div>
         </div>
       )}
@@ -1607,7 +1772,10 @@ function HomePage() {
             <h2 className="section-title">Ready to Enrol Your Child?</h2>
             <p>Get in touch today and we&apos;ll guide you through the enrolment process.</p>
           </div>
-          <NavLink to="/contact" className="btn-cta-white">Enquire About Enrolment</NavLink>
+          <div className="cta-actions-row">
+            <NavLink to="/application" className="btn-cta-white">Application Form</NavLink>
+            <NavLink to="/contact" className="btn-cta-white secondary-cta">Enquire About Enrolment</NavLink>
+          </div>
         </div>
       </section>
     </>
@@ -1664,12 +1832,10 @@ function AboutPage() {
 
           <div className="story-image-grid">
             <img
-              src="/gallery/32506920_2080015738950052_7338211921708974080_n.jpg"
-              alt="Children learning from the fire engine visit"
-            />
-            <img
               src="/gallery/32560327_2080015825616710_2777953549626114048_n.jpg"
               alt="Nursery children and teachers beside the fire truck"
+              loading="lazy"
+              decoding="async"
             />
           </div>
         </div>
@@ -1739,9 +1905,18 @@ function AboutPage() {
   )
 }
 
+function formatDateKey(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function EventsPage() {
-  const [calendarMonth, setCalendarMonth] = useState(new Date(2026, 7, 1))
-  const [selectedDate, setSelectedDate] = useState('2026-08-28')
+  const today = new Date()
+  const initialMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  const [calendarMonth, setCalendarMonth] = useState(initialMonth)
+  const [selectedDate, setSelectedDate] = useState(formatDateKey(today))
   const [events, setEvents] = useState([])
   const [newsletterEntries, setNewsletterEntries] = useState([])
 
@@ -1831,7 +2006,12 @@ function EventsPage() {
             <div className="calendar-header">
               <button
                 type="button"
-                onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
+                onClick={() => {
+                  const nextMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1)
+                  setCalendarMonth(nextMonth)
+                  const firstOfMonth = formatDateKey(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1))
+                  setSelectedDate((current) => eventMap.has(current) && current.startsWith(`${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-`) ? current : firstOfMonth)
+                }}
                 aria-label="Previous month"
               >
                 ‹
@@ -1841,7 +2021,12 @@ function EventsPage() {
               </h3>
               <button
                 type="button"
-                onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
+                onClick={() => {
+                  const nextMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1)
+                  setCalendarMonth(nextMonth)
+                  const firstOfMonth = formatDateKey(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), 1))
+                  setSelectedDate((current) => eventMap.has(current) && current.startsWith(`${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-`) ? current : firstOfMonth)
+                }}
                 aria-label="Next month"
               >
                 ›
@@ -1913,6 +2098,286 @@ function EventsPage() {
   )
 }
 
+function ApplicationPage() {
+  const initialForm = {
+    applicationType: 'Full-time Daycare',
+    childName: '',
+    dateOfBirth: '',
+    childAge: '',
+    gender: '',
+    homeLanguage: '',
+    parentName: '',
+    email: '',
+    phone: '',
+    address: '',
+    employmentStatus: '',
+    emergencyName: '',
+    emergencyPhone: '',
+    relationship: '',
+    medicalConcerns: '',
+    allergies: '',
+    medication: '',
+    medicalAid: '',
+    doctor: '',
+    immunisations: '',
+    schoolFees: '',
+    stationery: '',
+    startDate: '',
+    comments: '',
+    agreement: false,
+  }
+
+  const [formData, setFormData] = useState(initialForm)
+  const [status, setStatus] = useState('idle')
+  const [message, setMessage] = useState('')
+
+  const handleChange = (event) => {
+    const { name, type, value, checked } = event.target
+    const nextValue = type === 'checkbox' ? checked : value
+    setFormData((current) => ({ ...current, [name]: nextValue }))
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    setStatus('submitting')
+    setMessage('')
+
+    const cleanData = {
+      ...formData,
+      childName: formData.childName.trim(),
+      parentName: formData.parentName.trim(),
+      email: formData.email.trim(),
+      phone: formData.phone.trim(),
+      emergencyName: formData.emergencyName.trim(),
+      medicalConcerns: formData.medicalConcerns.trim() || 'None noted',
+      allergies: formData.allergies.trim() || 'None noted',
+      submittedAt: new Date().toISOString(),
+      status: 'new',
+    }
+
+    if (!cleanData.childName || !cleanData.parentName || !cleanData.email || !cleanData.phone || !cleanData.agreement) {
+      setStatus('error')
+      setMessage('Please complete the required fields and confirm the declaration before submitting.')
+      return
+    }
+
+    try {
+      const payload = {
+        id: Date.now(),
+        ...cleanData,
+      }
+
+      try {
+        await apiRequest('/api/content/applications', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+      } catch {
+        const existing = readStoredList(adminStorageKeys.applications, defaultApplications)
+        window.localStorage.setItem(adminStorageKeys.applications, JSON.stringify([payload, ...existing]))
+      }
+
+      const lines = [
+        'Sheilagh\'s Place Nursery Online Application',
+        `Application type: ${cleanData.applicationType}`,
+        `Child name: ${cleanData.childName}`,
+        `Date of birth: ${cleanData.dateOfBirth || 'Not provided'}`,
+        `Parent / guardian: ${cleanData.parentName}`,
+        `Email: ${cleanData.email}`,
+        `Phone: ${cleanData.phone}`,
+        `Address: ${cleanData.address || 'Not provided'}`,
+        `Emergency contact: ${cleanData.emergencyName || 'Not provided'} (${cleanData.emergencyPhone || 'Not provided'})`,
+        `Medical concerns: ${cleanData.medicalConcerns}`,
+        `Allergies: ${cleanData.allergies}`,
+        `Medical aid / doctor: ${cleanData.medicalAid || 'Not provided'} / ${cleanData.doctor || 'Not provided'}`,
+        `Fees / stationery: ${cleanData.schoolFees || 'Not provided'} / ${cleanData.stationery || 'Not provided'}`,
+        `Additional comments: ${cleanData.comments || 'None'}`,
+      ]
+
+      const messageText = lines.join('%0A')
+      generateApplicationPdf(cleanData)
+      openWhatsAppApplication(messageText)
+      setFormData(initialForm)
+      setStatus('success')
+      setMessage('Your application has been submitted successfully. A PDF has been generated and sent via WhatsApp with email fallback.')
+    } catch {
+      setStatus('error')
+      setMessage('Your application could not be sent right now. Please try again or contact the school directly.')
+    }
+  }
+
+  return (
+    <>
+      <div className="page-hero">
+        <div className="page-hero-inner">
+          <p className="section-label">Application</p>
+          <h1>Online Enrolment Form</h1>
+        </div>
+      </div>
+
+      <div className="page-content application-page-shell">
+        <div className="application-card">
+          <p className="section-label">Nursery registration</p>
+          <h2 className="section-title">Application for admission</h2>
+          <p className="application-intro">
+            Complete the form below and we will contact you about the next steps in the enrolment process.
+          </p>
+
+          <form className="application-form" onSubmit={handleSubmit}>
+            <div className="application-form-grid">
+              <label>
+                Application type
+                <select name="applicationType" value={formData.applicationType} onChange={handleChange}>
+                  <option>Full-time Daycare</option>
+                  <option>Pre-School</option>
+                  <option>Aftercare</option>
+                  <option>Holiday Care</option>
+                  <option>Other</option>
+                </select>
+              </label>
+
+              <label>
+                Preferred start date
+                <input type="date" name="startDate" value={formData.startDate} onChange={handleChange} />
+              </label>
+
+              <label>
+                Child's full name
+                <input type="text" name="childName" value={formData.childName} onChange={handleChange} placeholder="Child's full name" required />
+              </label>
+
+              <label>
+                Date of birth
+                <input type="date" name="dateOfBirth" value={formData.dateOfBirth} onChange={handleChange} />
+              </label>
+
+              <label>
+                Age
+                <input type="text" name="childAge" value={formData.childAge} onChange={handleChange} placeholder="e.g. 4 years" />
+              </label>
+
+              <label>
+                Gender
+                <input type="text" name="gender" value={formData.gender} onChange={handleChange} placeholder="Male / Female / Other" />
+              </label>
+
+              <label>
+                Home language
+                <input type="text" name="homeLanguage" value={formData.homeLanguage} onChange={handleChange} placeholder="Home language" />
+              </label>
+
+              <label>
+                Parent / guardian name
+                <input type="text" name="parentName" value={formData.parentName} onChange={handleChange} placeholder="Parent or guardian" required />
+              </label>
+
+              <label>
+                Email address
+                <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="you@example.com" required />
+              </label>
+
+              <label>
+                Phone number
+                <input type="tel" name="phone" value={formData.phone} onChange={handleChange} placeholder="+27 00 000 0000" required />
+              </label>
+
+              <label>
+                Address
+                <input type="text" name="address" value={formData.address} onChange={handleChange} placeholder="Street address" />
+              </label>
+
+              <label>
+                Employment status
+                <input type="text" name="employmentStatus" value={formData.employmentStatus} onChange={handleChange} placeholder="Working / studying / retired" />
+              </label>
+
+              <label>
+                Emergency contact name
+                <input type="text" name="emergencyName" value={formData.emergencyName} onChange={handleChange} placeholder="Emergency contact" />
+              </label>
+
+              <label>
+                Emergency contact number
+                <input type="tel" name="emergencyPhone" value={formData.emergencyPhone} onChange={handleChange} placeholder="+27 00 000 0000" />
+              </label>
+
+              <label>
+                Relationship to child
+                <input type="text" name="relationship" value={formData.relationship} onChange={handleChange} placeholder="Parent / grandparent / aunt / uncle" />
+              </label>
+
+              <label>
+                Medical aid / scheme
+                <input type="text" name="medicalAid" value={formData.medicalAid} onChange={handleChange} placeholder="Medical aid name" />
+              </label>
+
+              <label>
+                Doctor / clinic name
+                <input type="text" name="doctor" value={formData.doctor} onChange={handleChange} placeholder="Doctor or clinic" />
+              </label>
+
+              <label className="full-width">
+                Medical / allergy information
+                <textarea name="medicalConcerns" value={formData.medicalConcerns} onChange={handleChange} rows="4" placeholder="Please list allergies, chronic conditions, or special medical notes." />
+              </label>
+
+              <label className="full-width">
+                Allergies / medications
+                <textarea name="allergies" value={formData.allergies} onChange={handleChange} rows="3" placeholder="List any allergies, medications, or treatment instructions." />
+              </label>
+
+              <label className="full-width">
+                Medication instructions
+                <textarea name="medication" value={formData.medication} onChange={handleChange} rows="3" placeholder="Medication instructions, if applicable." />
+              </label>
+
+              <label className="full-width">
+                Immunisation information
+                <textarea name="immunisations" value={formData.immunisations} onChange={handleChange} rows="3" placeholder="Upload or describe immunisation history." />
+              </label>
+
+              <label>
+                School fees / deposit information
+                <input type="text" name="schoolFees" value={formData.schoolFees} onChange={handleChange} placeholder="Deposit / fee arrangement" />
+              </label>
+
+              <label>
+                Stationery / uniform details
+                <input type="text" name="stationery" value={formData.stationery} onChange={handleChange} placeholder="Stationery or uniform requirements" />
+              </label>
+
+              <label className="full-width">
+                Additional comments
+                <textarea name="comments" value={formData.comments} onChange={handleChange} rows="4" placeholder="Any other details we should know?" />
+              </label>
+            </div>
+
+            <div className="application-agreement">
+              <label className="checkbox-row">
+                <input type="checkbox" name="agreement" checked={formData.agreement} onChange={handleChange} required />
+                <span>
+                  I confirm that the information above is correct and agree to the nursery policies, indemnity,
+                  emergency procedures and daily care arrangements described by Sheilagh&apos;s Place Nursery.
+                </span>
+              </label>
+            </div>
+
+            {message && (
+              <p className={`application-status ${status === 'error' ? 'error' : status === 'success' ? 'success' : ''}`}>
+                {message}
+              </p>
+            )}
+
+            <button type="submit" className="primary-button" disabled={status === 'submitting'}>
+              {status === 'submitting' ? 'Submitting…' : 'Submit Application'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </>
+  )
+}
+
 function ContactPage() {
   const [formData, setFormData] = useState({
     name: '',
@@ -1956,7 +2421,7 @@ function ContactPage() {
         }),
       })
 
-      window.open(`https://wa.me/27722344114?text=${text}`, '_blank', 'noopener,noreferrer')
+      openWhatsAppEnquiry(text)
       setFormData({ name: '', email: '', phone: '', message: '' })
     } catch {
       const enquiries = readStoredList(adminStorageKeys.enquiries, defaultEnquiries)
@@ -1971,7 +2436,7 @@ function ContactPage() {
       }, ...enquiries]
 
       window.localStorage.setItem(adminStorageKeys.enquiries, JSON.stringify(nextEnquiries))
-      window.open(`https://wa.me/27722344114?text=${text}`, '_blank', 'noopener,noreferrer')
+      openWhatsAppEnquiry(text)
       setFormData({ name: '', email: '', phone: '', message: '' })
     }
   }
@@ -2105,6 +2570,7 @@ function App() {
         <Route path="/" element={<Layout><HomePage /></Layout>} />
         <Route path="/about" element={<Layout><AboutPage /></Layout>} />
         <Route path="/events" element={<Layout><EventsPage /></Layout>} />
+        <Route path="/application" element={<Layout><ApplicationPage /></Layout>} />
         <Route path="/contact" element={<Layout><ContactPage /></Layout>} />
       </Routes>
     </BrowserRouter>
