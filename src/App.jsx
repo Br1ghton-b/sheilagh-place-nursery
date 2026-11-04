@@ -192,49 +192,73 @@ function generateApplicationPdf(formData) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const margin = 48
   const pageWidth = doc.internal.pageSize.getWidth()
-  let currentY = 54
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const accentColor = [115, 99, 54]
+  let currentY = 98
+
+  const drawDivider = (y) => {
+    doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2])
+    doc.setLineWidth(0.8)
+    doc.line(margin, y, pageWidth - margin, y)
+  }
 
   const writeSection = (title, fields) => {
-    if (currentY > 720) {
+    if (currentY > 710) {
       doc.addPage()
-      currentY = 54
+      currentY = 80
     }
 
+    doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2])
+    doc.setFillColor(244, 238, 224)
+    doc.roundedRect(margin - 8, currentY - 18, pageWidth - margin * 2 + 16, 18, 6, 6, 'F')
+    doc.setTextColor(47, 47, 47)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(12)
+    doc.setFontSize(11)
     doc.text(title, margin, currentY)
-    currentY += 18
+    currentY += 20
+
+    doc.setDrawColor(200, 200, 200)
+    doc.setLineWidth(0.5)
+    doc.line(margin, currentY - 4, pageWidth - margin, currentY - 4)
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
+    doc.setTextColor(46, 46, 46)
 
     fields.forEach(([label, value]) => {
       const safeValue = value ?? 'Not provided'
       const line = `${label}: ${safeValue}`
-      const wrapped = doc.splitTextToSize(line, pageWidth - margin * 2)
+      const wrapped = doc.splitTextToSize(line, pageWidth - margin * 2 - 10)
 
       wrapped.forEach((wrappedLine) => {
-        if (currentY > 760) {
+        if (currentY > 770) {
           doc.addPage()
-          currentY = 54
+          currentY = 80
         }
         doc.text(wrappedLine, margin, currentY)
         currentY += 14
       })
     })
 
-    currentY += 8
+    currentY += 10
   }
 
+  doc.setFillColor(247, 244, 235)
+  doc.rect(0, 0, pageWidth, 88, 'F')
+  doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2])
+  doc.line(margin, 88, pageWidth - margin, 88)
+
+  doc.setTextColor(30, 30, 30)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(18)
-  doc.text("Sheilagh's Place Nursery - Enrolment Application", margin, currentY)
-  currentY += 22
+  doc.setFontSize(22)
+  doc.text("Sheilagh's Place Nursery", margin, 34)
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.text(`Generated: ${new Date().toLocaleString()}`, margin, currentY)
-  currentY += 18
+  doc.setFontSize(11)
+  doc.text('Enrolment Application', margin, 54)
+  doc.text(`Submitted: ${new Date().toLocaleString()}`, pageWidth - margin - 130, 54)
+
+  currentY = 108
 
   writeSection('1. Child details', [
     ['Application type', formData.applicationType],
@@ -275,13 +299,16 @@ function generateApplicationPdf(formData) {
     ['Additional comments', formData.comments],
   ])
 
-  if (currentY > 700) {
+  if (currentY > 680) {
     doc.addPage()
-    currentY = 54
+    currentY = 80
   }
 
+  drawDivider(currentY)
+  currentY += 16
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(12)
+  doc.setFontSize(11)
   doc.text('6. Declaration', margin, currentY)
   currentY += 18
 
@@ -293,11 +320,23 @@ function generateApplicationPdf(formData) {
   wrappedDeclaration.forEach((line) => {
     if (currentY > 760) {
       doc.addPage()
-      currentY = 54
+      currentY = 80
     }
     doc.text(line, margin, currentY)
     currentY += 14
   })
+
+  const signatureY = Math.min(pageHeight - 70, currentY + 36)
+  const signatureX = pageWidth - 180
+  doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2])
+  doc.line(signatureX, signatureY, signatureX + 120, signatureY)
+  doc.setFont('helvetica', 'italic')
+  doc.setFontSize(9)
+  doc.text('Parent / guardian signature', signatureX, signatureY + 16)
+
+  doc.setDrawColor(160, 160, 160)
+  doc.line(margin, signatureY, margin + 120, signatureY)
+  doc.text('Date', margin, signatureY + 16)
 
   const fileName = `${(formData.childName || 'application').trim().replace(/\s+/g, '-') || 'application'}.pdf`
   const pdfBlob = doc.output('blob')
