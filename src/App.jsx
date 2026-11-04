@@ -242,7 +242,42 @@ function generateApplicationPdf(formData) {
   })
 
   const fileName = `${(formData.childName || 'application').trim().replace(/\s+/g, '-') || 'application'}.pdf`
-  doc.save(fileName)
+  const pdfBlob = doc.output('blob')
+
+  return {
+    blob: pdfBlob,
+    fileName,
+    url: URL.createObjectURL(pdfBlob),
+  }
+}
+
+async function shareApplicationPdf(formData, messageText) {
+  const pdf = generateApplicationPdf(formData)
+
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })] })) {
+    const shareFile = new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })
+
+    try {
+      await navigator.share({
+        title: 'Sheilagh\'s Place Nursery Application',
+        text: messageText,
+        files: [shareFile],
+      })
+      return
+    } catch {
+      // Fall back to WhatsApp text and a PDF download if the share sheet is cancelled.
+    }
+  }
+
+  const pdfLink = document.createElement('a')
+  pdfLink.href = pdf.url
+  pdfLink.download = pdf.fileName
+  document.body.appendChild(pdfLink)
+  pdfLink.click()
+  document.body.removeChild(pdfLink)
+
+  openWhatsAppApplication(messageText)
+  setTimeout(() => URL.revokeObjectURL(pdf.url), 15000)
 }
 
 function hasPlaceholderContent(type, item) {
@@ -2387,11 +2422,10 @@ function ApplicationPage() {
       ]
 
       const messageText = lines.join('%0A')
-      generateApplicationPdf(cleanData)
-      openWhatsAppApplication(messageText)
+      await shareApplicationPdf(cleanData, messageText)
       setFormData(initialForm)
       setStatus('success')
-      setMessage('Your application has been submitted successfully. A PDF has been generated and sent via WhatsApp with email fallback.')
+      setMessage('Your application has been submitted successfully. A PDF has been generated and shared to WhatsApp where possible, with an email fallback.')
     } catch {
       setStatus('error')
       setMessage('Your application could not be sent right now. Please try again or contact the school directly.')
