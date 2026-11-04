@@ -192,13 +192,13 @@
 }
 .secondary-button {
   background: transparent;
-  color: var(--white);
-  border-color: rgba(255,255,255,0.70);
+  color: #0d2340;
+  border-color: rgba(13,35,64,0.70);
 }
 .secondary-button:hover {
-  background: var(--white);
-  color: var(--primary);
-  border-color: var(--white);
+  background: #0d2340;
+  color: #ffffff;
+  border-color: #0d2340;
 }
 .advance-status-button {
   display: inline-flex;
