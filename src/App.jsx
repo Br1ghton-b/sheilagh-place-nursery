@@ -366,8 +366,8 @@ function generateApplicationPdf(formData) {
   }
 }
 
-async function shareApplicationPdf(formData, messageText) {
-  const pdf = generateApplicationPdf(formData)
+async function shareApplicationPdf(pdf, messageText) {
+  const shareText = `${messageText}\n\nPlease choose WhatsApp and select the nursery chat as the share target.`
 
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })] })) {
     const shareFile = new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })
@@ -375,12 +375,12 @@ async function shareApplicationPdf(formData, messageText) {
     try {
       await navigator.share({
         title: 'Sheilagh\'s Place Nursery Application',
-        text: messageText,
+        text: shareText,
         files: [shareFile],
       })
-      return
+      return true
     } catch {
-      // Fall back to WhatsApp text and a PDF download if the share sheet is cancelled.
+      // The user cancelled the share sheet. Keep the PDF available and fall back to a manual delivery path.
     }
   }
 
@@ -391,8 +391,31 @@ async function shareApplicationPdf(formData, messageText) {
   pdfLink.click()
   document.body.removeChild(pdfLink)
 
-  openWhatsAppApplication(messageText)
+  const fallbackMessage = `${messageText}\n\nPlease attach the downloaded PDF manually in WhatsApp or send it by email to sheilaghcogger@gmail.com.`
+  openWhatsAppApplication(fallbackMessage)
   setTimeout(() => URL.revokeObjectURL(pdf.url), 15000)
+  return false
+}
+
+function buildApplicationSummaryText(data) {
+  const lines = [
+    'Sheilagh\'s Place Nursery Online Application',
+    `Application type: ${data.applicationType || 'Not provided'}`,
+    `Child name: ${data.childName || 'Not provided'}`,
+    `Date of birth: ${data.dateOfBirth || 'Not provided'}`,
+    `Parent / guardian: ${data.parentName || 'Not provided'}`,
+    `Email: ${data.email || 'Not provided'}`,
+    `Phone: ${data.phone || 'Not provided'}`,
+    `Address: ${data.address || 'Not provided'}`,
+    `Emergency contact: ${data.emergencyName || 'Not provided'} (${data.emergencyPhone || 'Not provided'})`,
+    `Medical concerns: ${data.medicalConcerns || 'None noted'}`,
+    `Allergies: ${data.allergies || 'None noted'}`,
+    `Medical aid / doctor: ${data.medicalAid || 'Not provided'} / ${data.doctor || 'Not provided'}`,
+    `Fees / stationery: ${data.schoolFees || 'Not provided'} / ${data.stationery || 'Not provided'}`,
+    `Additional comments: ${data.comments || 'None'}`,
+  ]
+
+  return lines.join('\n')
 }
 
 function hasPlaceholderContent(type, item) {
@@ -2472,6 +2495,7 @@ function ApplicationPage() {
   const [formData, setFormData] = useState(initialForm)
   const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
+  const [generatedPdf, setGeneratedPdf] = useState(null)
 
   const handleChange = (event) => {
     const { name, type, value, checked } = event.target
@@ -2519,32 +2543,42 @@ function ApplicationPage() {
         window.localStorage.setItem(adminStorageKeys.applications, JSON.stringify([payload, ...existing]))
       }
 
-      const lines = [
-        'Sheilagh\'s Place Nursery Online Application',
-        `Application type: ${cleanData.applicationType}`,
-        `Child name: ${cleanData.childName}`,
-        `Date of birth: ${cleanData.dateOfBirth || 'Not provided'}`,
-        `Parent / guardian: ${cleanData.parentName}`,
-        `Email: ${cleanData.email}`,
-        `Phone: ${cleanData.phone}`,
-        `Address: ${cleanData.address || 'Not provided'}`,
-        `Emergency contact: ${cleanData.emergencyName || 'Not provided'} (${cleanData.emergencyPhone || 'Not provided'})`,
-        `Medical concerns: ${cleanData.medicalConcerns}`,
-        `Allergies: ${cleanData.allergies}`,
-        `Medical aid / doctor: ${cleanData.medicalAid || 'Not provided'} / ${cleanData.doctor || 'Not provided'}`,
-        `Fees / stationery: ${cleanData.schoolFees || 'Not provided'} / ${cleanData.stationery || 'Not provided'}`,
-        `Additional comments: ${cleanData.comments || 'None'}`,
-      ]
-
-      const messageText = lines.join('%0A')
-      await shareApplicationPdf(cleanData, messageText)
+      const pdf = generateApplicationPdf(cleanData)
+      setGeneratedPdf({ ...cleanData, pdf })
       setFormData(initialForm)
       setStatus('success')
-      setMessage('Your application has been submitted successfully. A PDF has been generated and shared to WhatsApp where possible, with an email fallback.')
+      setMessage('Your application has been submitted successfully. A PDF has been generated and is ready to share. Use Send details to WhatsApp to open the nursery chat directly, or use Share PDF to choose a delivery method from the share sheet.')
     } catch {
       setStatus('error')
       setMessage('Your application could not be sent right now. Please try again or contact the school directly.')
     }
+  }
+
+  const handleShareGeneratedPdf = async () => {
+    if (!generatedPdf?.pdf) {
+      setMessage('No PDF is available to share yet. Please submit the application first.')
+      return
+    }
+
+    const messageText = buildApplicationSummaryText(generatedPdf)
+    const shared = await shareApplicationPdf(generatedPdf.pdf, messageText)
+
+    if (shared) {
+      setMessage('Your PDF is ready and shared from the app. You can also download it again if you need to send it another way.')
+    } else {
+      setMessage('Your application PDF has been downloaded. Please attach it manually in WhatsApp or send it by email if needed.')
+    }
+  }
+
+  const handleSendToSchoolWhatsApp = () => {
+    if (!generatedPdf) {
+      setMessage('Please submit the application first so the nursery can receive the form details.')
+      return
+    }
+
+    const messageText = `${buildApplicationSummaryText(generatedPdf)}\n\nPlease send the application details in the nursery WhatsApp chat and attach the downloaded PDF if needed.`
+    openWhatsAppApplication(messageText)
+    setMessage('The nursery WhatsApp chat has been opened. Please send the message there and attach the downloaded PDF if needed.')
   }
 
   return (
@@ -2709,9 +2743,22 @@ function ApplicationPage() {
               </p>
             )}
 
-            <button type="submit" className="primary-button" disabled={status === 'submitting'}>
-              {status === 'submitting' ? 'Submitting…' : 'Submit Application'}
-            </button>
+            <div className="application-actions">
+              <button type="submit" className="primary-button" disabled={status === 'submitting'}>
+                {status === 'submitting' ? 'Submitting…' : 'Submit Application'}
+              </button>
+
+              {generatedPdf?.pdf && (
+                <>
+                  <button type="button" className="secondary-button" onClick={handleSendToSchoolWhatsApp}>
+                    Send details to WhatsApp
+                  </button>
+                  <button type="button" className="secondary-button" onClick={handleShareGeneratedPdf}>
+                    Share PDF
+                  </button>
+                </>
+              )}
+            </div>
           </form>
         </div>
       </div>
