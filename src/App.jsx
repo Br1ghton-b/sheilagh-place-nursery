@@ -367,7 +367,7 @@ function generateApplicationPdf(formData) {
 }
 
 async function shareApplicationPdf(pdf, messageText) {
-  const shareText = `${messageText}\n\nPlease choose WhatsApp and select the nursery chat as the share target. The PDF is attached for your records.`
+  const shareText = messageText
 
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })] })) {
     const shareFile = new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })
@@ -391,7 +391,7 @@ async function shareApplicationPdf(pdf, messageText) {
   pdfLink.click()
   document.body.removeChild(pdfLink)
 
-  const fallbackMessage = `${messageText}\n\nPlease attach the downloaded PDF manually in WhatsApp or send it by email to sheilaghcogger@gmail.com.`
+  const fallbackMessage = messageText
   openWhatsAppApplication(fallbackMessage)
   setTimeout(() => URL.revokeObjectURL(pdf.url), 15000)
   return false
@@ -2596,9 +2596,9 @@ function ApplicationPage() {
       return
     }
 
-    const messageText = `${buildApplicationSummaryText(generatedPdf)}\n\nPlease send the application details in the nursery WhatsApp chat and attach the downloaded PDF if needed.`
+    const messageText = buildApplicationSummaryText(generatedPdf)
     openWhatsAppApplication(messageText)
-    setMessage('The nursery WhatsApp chat has been opened. Please send the message there and attach the downloaded PDF if needed.')
+    setMessage('The nursery WhatsApp chat has been opened.')
   }
 
   return (
