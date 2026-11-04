@@ -399,18 +399,35 @@ async function shareApplicationPdf(pdf, messageText) {
 
 function buildApplicationSummaryText(data) {
   const lines = [
-    'Sheilagh\'s Place Nursery Online Application',
+    'Sheilagh\'s Place Nursery - Online Application',
+    '',
+    '1. Applicant information',
     `Application type: ${data.applicationType || 'Not provided'}`,
-    `Child name: ${data.childName || 'Not provided'}`,
-    `Date of birth: ${data.dateOfBirth || 'Not provided'}`,
     `Parent / guardian: ${data.parentName || 'Not provided'}`,
     `Email: ${data.email || 'Not provided'}`,
     `Phone: ${data.phone || 'Not provided'}`,
     `Address: ${data.address || 'Not provided'}`,
+    '',
+    '2. Child details',
+    `Child name: ${data.childName || 'Not provided'}`,
+    `Date of birth: ${data.dateOfBirth || 'Not provided'}`,
+    `Age: ${data.childAge || 'Not provided'}`,
+    `Gender: ${data.gender || 'Not provided'}`,
+    `Home language: ${data.homeLanguage || 'Not provided'}`,
+    '',
+    '3. Emergency contact',
     `Emergency contact: ${data.emergencyName || 'Not provided'} (${data.emergencyPhone || 'Not provided'})`,
+    `Relationship to child: ${data.relationship || 'Not provided'}`,
+    '',
+    '4. Medical and welfare information',
     `Medical concerns: ${data.medicalConcerns || 'None noted'}`,
     `Allergies: ${data.allergies || 'None noted'}`,
+    `Medication: ${data.medication || 'Not provided'}`,
     `Medical aid / doctor: ${data.medicalAid || 'Not provided'} / ${data.doctor || 'Not provided'}`,
+    `Immunisations: ${data.immunisations || 'Not provided'}`,
+    '',
+    '5. Nursery and fee information',
+    `Preferred start date: ${data.startDate || 'Not provided'}`,
     `Fees / stationery: ${data.schoolFees || 'Not provided'} / ${data.stationery || 'Not provided'}`,
     `Additional comments: ${data.comments || 'None'}`,
   ]
@@ -2789,11 +2806,16 @@ function ContactPage() {
     const cleanEmail = formData.email.trim()
     const cleanPhone = formData.phone.trim()
     const cleanMessage = formData.message.trim() || 'No message provided.'
-    const text = `Hello Sheilagh's Place Nursery,%0A%0A` +
-      `Parent name: ${encodeURIComponent(cleanName)}%0A` +
-      `Email: ${encodeURIComponent(cleanEmail || 'Not provided')}%0A` +
-      `Phone: ${encodeURIComponent(cleanPhone || 'Not provided')}%0A%0A` +
-      `Enquiry details:%0A${encodeURIComponent(cleanMessage)}`
+    const text = [
+      "Hello Sheilagh's Place Nursery,",
+      '',
+      `Parent name: ${cleanName}`,
+      `Email: ${cleanEmail || 'Not provided'}`,
+      `Phone: ${cleanPhone || 'Not provided'}`,
+      '',
+      'Enquiry details:',
+      cleanMessage,
+    ].join('\n')
 
     try {
       await apiRequest('/api/content/enquiries', {
