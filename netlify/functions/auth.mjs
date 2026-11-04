@@ -28,6 +28,46 @@ function sanitizeDocument(entry) {
   }
 }
 
+function isPlaceholderContentItem(type, entry) {
+  if (!entry || typeof entry !== 'object') {
+    return true
+  }
+
+  const searchable = [
+    entry.term,
+    entry.title,
+    entry.intro,
+    entry.message,
+    entry.childName,
+    entry.parentName,
+    entry.email,
+    entry.name,
+    entry.src,
+    entry.alt,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  if (!searchable.trim()) {
+    return true
+  }
+
+  const placeholderPatterns = {
+    newsletters: [/welcome to 2027/i, /newsletter and calendar to be updated/i, /term 1 2027/i],
+    gallery: [/placeholder/i],
+    enquiries: [/aisha patel/i, /lebo mokoena/i, /example\.com/i],
+    applications: [/mila patel/i, /aisha patel/i, /example\.com/i],
+  }
+
+  return (placeholderPatterns[type] || []).some((pattern) => pattern.test(searchable))
+}
+
+function sanitizeContentItems(type, items) {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  return items.filter((item) => !isPlaceholderContentItem(type, item))
+}
+
 async function ensureAdminCollection() {
   if (!mongoUri) {
     throw new Error('MONGODB_URI is not configured in Netlify environment variables.')
@@ -349,7 +389,7 @@ export async function handler(event) {
     const collection = db.collection(contentType)
 
     if (event.httpMethod === 'GET') {
-      const items = await collection.find({}).sort({ _id: -1 }).toArray()
+      const items = sanitizeContentItems(type, await collection.find({}).sort({ _id: -1 }).toArray())
       return respond(200, {
         ok: true,
         items: items.map((entry) => sanitizeDocument(entry)),

@@ -73,6 +73,46 @@ function sanitizeDocument(entry) {
   }
 }
 
+function isPlaceholderContentItem(type, entry) {
+  if (!entry || typeof entry !== 'object') {
+    return true
+  }
+
+  const searchable = [
+    entry.term,
+    entry.title,
+    entry.intro,
+    entry.message,
+    entry.childName,
+    entry.parentName,
+    entry.email,
+    entry.name,
+    entry.src,
+    entry.alt,
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  if (!searchable.trim()) {
+    return true
+  }
+
+  const placeholderPatterns = {
+    newsletters: [/welcome to 2027/i, /newsletter and calendar to be updated/i, /term 1 2027/i],
+    gallery: [/placeholder/i],
+    enquiries: [/aisha patel/i, /lebo mokoena/i, /example\.com/i],
+    applications: [/mila patel/i, /aisha patel/i, /example\.com/i],
+  }
+
+  return (placeholderPatterns[type] || []).some((pattern) => pattern.test(searchable))
+}
+
+function sanitizeContentItems(type, items) {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  return items.filter((item) => !isPlaceholderContentItem(type, item))
+}
+
 async function ensureAdminCollection() {
   await ensureDatabaseCollections()
   return adminUsersCollection
@@ -345,7 +385,7 @@ app.post('/api/admin/update-account', requireAdmin, async (req, res) => {
 app.get('/api/content/:type', async (req, res) => {
   try {
     const collection = await getContentCollection(req.params.type)
-    const items = await collection.find({}).sort({ _id: -1 }).toArray()
+    const items = sanitizeContentItems(req.params.type, await collection.find({}).sort({ _id: -1 }).toArray())
     return res.json({
       ok: true,
       items: items.map((entry) => sanitizeDocument(entry)),

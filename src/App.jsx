@@ -134,7 +134,7 @@ const initialEvents = [
 const defaultNewsletterEntries = [
   {
     id: 1,
-    term: '3rd Term',
+    term: '3rd Term 2026',
     title: 'Welcome Back to School for the 3rd Term',
     intro: 'Welcome back to school for the 3rd term, I trust you all had a good break and are ready for some exciting times.',
     points: [
@@ -159,40 +159,6 @@ const adminStorageKeys = {
   applications: 'sheilagh-applications',
 }
 
-const defaultEnquiries = [
-  {
-    id: 1,
-    name: 'Aisha Patel',
-    email: 'aisha.patel@example.com',
-    phone: '+27 82 111 2222',
-    message: 'We would like to know more about the 2026 intake for our 4-year-old son.',
-    submittedAt: '2026-10-12T10:15:00.000Z',
-    status: 'new',
-  },
-  {
-    id: 2,
-    name: 'Lebo Mokoena',
-    email: 'lebo.m@example.com',
-    phone: '+27 71 333 4444',
-    message: 'Can we arrange a school visit and find out about the aftercare programme?',
-    submittedAt: '2026-10-18T14:00:00.000Z',
-    status: 'reviewed',
-  },
-]
-
-const defaultApplications = [
-  {
-    id: 1,
-    applicationType: 'Full-time Daycare',
-    childName: 'Mila Patel',
-    dateOfBirth: '2022-04-14',
-    parentName: 'Aisha Patel',
-    email: 'aisha.patel@example.com',
-    phone: '+27 82 111 2222',
-    status: 'new',
-    submittedAt: '2026-10-12T10:15:00.000Z',
-  },
-]
 
 function openWhatsAppEnquiry(messageText) {
   const whatsappUrl = `https://wa.me/27722344114?text=${encodeURIComponent(messageText)}`
@@ -279,10 +245,50 @@ function generateApplicationPdf(formData) {
   doc.save(fileName)
 }
 
+function hasPlaceholderContent(type, item) {
+  if (!item || typeof item !== 'object') {
+    return true
+  }
+
+  const searchable = [
+    item.term,
+    item.title,
+    item.intro,
+    item.message,
+    item.childName,
+    item.parentName,
+    item.email,
+    item.name,
+    item.src,
+    item.alt,
+    item.status,
+    item.type,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  if (!searchable.trim()) {
+    return true
+  }
+
+  const placeholderPatterns = {
+    newsletters: [/welcome to 2027/i, /newsletter and calendar to be updated/i, /term 1 2027/i],
+    gallery: [/placeholder/i],
+    enquiries: [/aisha patel/i, /lebo mokoena/i, /example.com/i],
+    applications: [/mila patel/i, /aisha patel/i, /example.com/i],
+  }
+
+  const patterns = placeholderPatterns[type] ?? []
+  return patterns.some((pattern) => pattern.test(searchable))
+}
+
 async function fetchContentList(type, fallback) {
   try {
     const result = await apiRequest(`/api/content/${type}`)
-    const nextItems = Array.isArray(result?.items) ? result.items : []
+    const nextItems = Array.isArray(result?.items)
+      ? result.items.filter((item) => !hasPlaceholderContent(type, item))
+      : []
 
     if (nextItems.length === 0) {
       return fallback
@@ -493,6 +499,7 @@ function AdminDashboardPage() {
   const [editingNewsletterId, setEditingNewsletterId] = useState(null)
   const [statusMessage, setStatusMessage] = useState('')
   const [filter, setFilter] = useState('all')
+  const [adminSettingsOpen, setAdminSettingsOpen] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -500,11 +507,11 @@ function AdminDashboardPage() {
     const loadContent = async () => {
       try {
         const [nextEnquiries, nextEvents, nextGallery, nextNewsletters, nextApplications] = await Promise.all([
-          fetchContentList('enquiries', defaultEnquiries),
+          fetchContentList('enquiries', []),
           fetchContentList('events', initialEvents),
           fetchContentList('gallery', galleryItems),
           fetchContentList('newsletters', defaultNewsletterEntries),
-          fetchContentList('applications', defaultApplications),
+          fetchContentList('applications', []),
         ])
 
         if (!isMounted) {
@@ -518,11 +525,11 @@ function AdminDashboardPage() {
         setApplications(nextApplications)
       } catch {
         if (isMounted) {
-          setEnquiries(defaultEnquiries)
+          setEnquiries([])
           setEvents(initialEvents)
           setGallery(galleryItems)
           setNewsletterEntries(defaultNewsletterEntries)
-          setApplications(defaultApplications)
+          setApplications([])
         }
       }
     }
@@ -992,30 +999,43 @@ function AdminDashboardPage() {
 
       <div className="admin-grid">
         <div className="admin-card admin-panel-block wide-card">
-          <h2>Admin login settings</h2>
-          <form className="admin-event-form" onSubmit={handleAccountSettingsSubmit}>
-            <label>
-              Display name
-              <input type="text" name="name" value={accountSettingsForm.name} onChange={handleAccountSettingsChange} placeholder="School admin" required />
-            </label>
-            <label>
-              Login email
-              <input type="email" name="email" value={accountSettingsForm.email} onChange={handleAccountSettingsChange} placeholder="admin@school.com" required />
-            </label>
-            <label>
-              Current password
-              <input type="password" name="currentPassword" value={accountSettingsForm.currentPassword} onChange={handleAccountSettingsChange} placeholder="Enter your current password" required />
-            </label>
-            <label>
-              New password (optional)
-              <input type="password" name="newPassword" value={accountSettingsForm.newPassword} onChange={handleAccountSettingsChange} placeholder="Leave empty to keep the current password" />
-            </label>
-            <label>
-              Confirm new password
-              <input type="password" name="confirmPassword" value={accountSettingsForm.confirmPassword} onChange={handleAccountSettingsChange} placeholder="Re-enter the new password" />
-            </label>
-            <button type="submit" className="primary-button">Update admin login</button>
-          </form>
+          <div className="admin-section-header">
+            <h2>Admin login settings</h2>
+            <button
+              type="button"
+              className="admin-toggle-button"
+              onClick={() => setAdminSettingsOpen((current) => !current)}
+              aria-expanded={adminSettingsOpen}
+            >
+              {adminSettingsOpen ? 'Hide' : 'Change'}
+            </button>
+          </div>
+
+          {adminSettingsOpen && (
+            <form className="admin-event-form" onSubmit={handleAccountSettingsSubmit}>
+              <label>
+                Display name
+                <input type="text" name="name" value={accountSettingsForm.name} onChange={handleAccountSettingsChange} placeholder="School admin" required />
+              </label>
+              <label>
+                Login email
+                <input type="email" name="email" value={accountSettingsForm.email} onChange={handleAccountSettingsChange} placeholder="admin@school.com" required />
+              </label>
+              <label>
+                Current password
+                <input type="password" name="currentPassword" value={accountSettingsForm.currentPassword} onChange={handleAccountSettingsChange} placeholder="Enter your current password" required />
+              </label>
+              <label>
+                New password (optional)
+                <input type="password" name="newPassword" value={accountSettingsForm.newPassword} onChange={handleAccountSettingsChange} placeholder="Leave empty to keep the current password" />
+              </label>
+              <label>
+                Confirm new password
+                <input type="password" name="confirmPassword" value={accountSettingsForm.confirmPassword} onChange={handleAccountSettingsChange} placeholder="Re-enter the new password" />
+              </label>
+              <button type="submit" className="primary-button">Update admin login</button>
+            </form>
+          )}
         </div>
 
         <div className="admin-card admin-panel-block wide-card">
@@ -2173,7 +2193,7 @@ function ApplicationPage() {
           body: JSON.stringify(payload),
         })
       } catch {
-        const existing = readStoredList(adminStorageKeys.applications, defaultApplications)
+        const existing = readStoredList(adminStorageKeys.applications, [])
         window.localStorage.setItem(adminStorageKeys.applications, JSON.stringify([payload, ...existing]))
       }
 
@@ -2424,7 +2444,7 @@ function ContactPage() {
       openWhatsAppEnquiry(text)
       setFormData({ name: '', email: '', phone: '', message: '' })
     } catch {
-      const enquiries = readStoredList(adminStorageKeys.enquiries, defaultEnquiries)
+      const enquiries = readStoredList(adminStorageKeys.enquiries, [])
       const nextEnquiries = [{
         id: Date.now(),
         name: cleanName,
