@@ -390,9 +390,26 @@ export async function handler(event) {
 
     if (event.httpMethod === 'GET') {
       const items = sanitizeContentItems(type, await collection.find({}).sort({ _id: -1 }).toArray())
+      const cookies = parseCookies(event.headers.cookie)
+      const token = cookies.auth_token
+      let isAdminRequest = false
+
+      if (token) {
+        try {
+          jwt.verify(token, jwtSecret)
+          isAdminRequest = true
+        } catch {
+          isAdminRequest = false
+        }
+      }
+
+      const visibleItems = isAdminRequest
+        ? items
+        : items.filter((entry) => entry?.published !== false)
+
       return respond(200, {
         ok: true,
-        items: items.map((entry) => sanitizeDocument(entry)),
+        items: visibleItems.map((entry) => sanitizeDocument(entry)),
       })
     }
 

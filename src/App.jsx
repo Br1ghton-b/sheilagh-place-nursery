@@ -290,13 +290,13 @@ async function fetchContentList(type, fallback) {
       ? result.items.filter((item) => !hasPlaceholderContent(type, item))
       : []
 
-    if (nextItems.length === 0) {
-      return fallback
-    }
-
-    return nextItems
+    const resolved = nextItems.length === 0 ? (Array.isArray(fallback) ? [...fallback] : []) : nextItems
+    resolved.success = true
+    return resolved
   } catch {
-    return fallback
+    const failedFallback = Array.isArray(fallback) ? [...fallback] : []
+    failedFallback.success = false
+    return failedFallback
   }
 }
 
@@ -351,11 +351,17 @@ function formatUpdatedAt(value) {
   })
 }
 
-function downloadCsv(filename, rows) {
-  const csvRows = [Object.keys(rows[0] || {}).join(',')]
+function downloadCsv(filename, rows, columns = []) {
+  const availableColumns = Array.from(new Set([
+    ...columns,
+    ...rows.flatMap((row) => Object.keys(row || {})),
+  ]))
+
+  const csvRows = [availableColumns.join(',')]
 
   rows.forEach((row) => {
-    const values = Object.values(row).map((value) => {
+    const values = availableColumns.map((column) => {
+      const value = row?.[column] ?? ''
       const stringValue = String(value ?? '')
       return `"${stringValue.replace(/"/g, '""')}"`
     })
@@ -549,13 +555,15 @@ function AdminDashboardPage() {
 
     const loadContent = async () => {
       try {
-        const [nextEnquiries, nextEvents, nextGallery, nextNewsletters, nextApplications] = await Promise.all([
+        const contentResults = await Promise.all([
           fetchContentList('enquiries', []),
           fetchContentList('events', initialEvents),
           fetchContentList('gallery', galleryItems),
           fetchContentList('newsletters', defaultNewsletterEntries),
           fetchContentList('applications', []),
         ])
+
+        const [nextEnquiries, nextEvents, nextGallery, nextNewsletters, nextApplications] = contentResults
 
         if (!isMounted) {
           return
@@ -566,7 +574,10 @@ function AdminDashboardPage() {
         setGallery(nextGallery)
         setNewsletterEntries(nextNewsletters)
         setApplications(nextApplications)
-        setLastSync(new Date().toISOString())
+
+        if (contentResults.every((result) => result.success !== false)) {
+          setLastSync(new Date().toISOString())
+        }
       } catch {
         if (isMounted) {
           setEnquiries([])
@@ -735,8 +746,14 @@ function AdminDashboardPage() {
       published: row.published === false ? 'Draft' : 'Live',
     }))
 
+    const exportColumns = [
+      'id', 'name', 'email', 'phone', 'status', 'submittedAt', 'updatedAt',
+      'message', 'childName', 'parentName', 'published', 'title', 'term',
+      'intro', 'closing', 'alt', 'src', 'date', 'type',
+    ]
+
     const filename = `${collectionName}-${new Date().toISOString().slice(0, 10)}.csv`
-    downloadCsv(filename, csvRows)
+    downloadCsv(filename, csvRows, exportColumns)
     setStatusMessage(`${collectionName.charAt(0).toUpperCase() + collectionName.slice(1)} exported as a CSV file.`)
   }
 
@@ -1003,6 +1020,28 @@ function AdminDashboardPage() {
       persistAudit('Gallery image removed')
     } catch {
       setStatusMessage('Unable to remove the selected gallery item.')
+    }
+  }
+
+  const handleGalleryPublish = async (item) => {
+    if (!item) {
+      return
+    }
+
+    try {
+      const nextItem = {
+        ...item,
+        published: true,
+        updatedAt: new Date().toISOString(),
+      }
+
+      const savedItem = await saveContentItem('gallery', nextItem, 'PUT', String(item.id ?? ''))
+      const nextGallery = gallery.map((entry) => (entry.id === savedItem.id || entry.src === item.src ? { ...entry, ...savedItem, published: true } : entry))
+      setGallery(nextGallery)
+      setStatusMessage('Gallery item published.')
+      persistAudit(`Gallery image published: ${savedItem.alt || 'item'}`)
+    } catch {
+      setStatusMessage('Unable to publish the selected gallery item.')
     }
   }
 
@@ -1365,6 +1404,9 @@ function AdminDashboardPage() {
                   <strong>{item.alt}</strong>
                   <small>{isPublished(item.published) ? 'Live' : 'Draft'} · Updated {formatUpdatedAt(item.updatedAt)}</small>
                   <div className="gallery-row-actions">
+                    {!isPublished(item.published) && (
+                      <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryPublish(item)}>Publish</button>
+                    )}
                     <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryMove(index, -1)}>↑</button>
                     <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryMove(index, 1)}>↓</button>
                     <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryDelete(index)}>Remove</button>
@@ -1610,11 +1652,11 @@ function HomePage() {
       try {
         const items = await fetchContentList('gallery', galleryItems)
         if (isMounted) {
-          setGalleryFeed(items)
+          setGalleryFeed(items.filter((item) => isPublished(item.published)))
         }
       } catch {
         if (isMounted) {
-          setGalleryFeed(galleryItems)
+          setGalleryFeed(galleryItems.filter((item) => isPublished(item.published)))
         }
       }
     }
@@ -2084,12 +2126,12 @@ function EventsPage() {
           return
         }
 
-        setEvents(nextEvents)
-        setNewsletterEntries(nextNewsletters)
+        setEvents(nextEvents.filter((item) => isPublished(item.published)))
+        setNewsletterEntries(nextNewsletters.filter((item) => isPublished(item.published)))
       } catch {
         if (isMounted) {
-          setEvents(initialEvents)
-          setNewsletterEntries(defaultNewsletterEntries)
+          setEvents(initialEvents.filter((item) => isPublished(item.published)))
+          setNewsletterEntries(defaultNewsletterEntries.filter((item) => isPublished(item.published)))
         }
       }
     }

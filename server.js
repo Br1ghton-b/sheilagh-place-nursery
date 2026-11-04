@@ -385,10 +385,26 @@ app.post('/api/admin/update-account', requireAdmin, async (req, res) => {
 app.get('/api/content/:type', async (req, res) => {
   try {
     const collection = await getContentCollection(req.params.type)
+    const token = req.cookies?.auth_token
+    let isAdminRequest = false
+
+    if (token) {
+      try {
+        jwt.verify(token, jwtSecret)
+        isAdminRequest = true
+      } catch (_error) {
+        isAdminRequest = false
+      }
+    }
+
     const items = sanitizeContentItems(req.params.type, await collection.find({}).sort({ _id: -1 }).toArray())
+    const visibleItems = isAdminRequest
+      ? items
+      : items.filter((entry) => entry?.published !== false)
+
     return res.json({
       ok: true,
-      items: items.map((entry) => sanitizeDocument(entry)),
+      items: visibleItems.map((entry) => sanitizeDocument(entry)),
     })
   } catch (error) {
     return res.status(400).json({
