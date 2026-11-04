@@ -274,13 +274,13 @@ function hasPlaceholderContent(type, item) {
 
   const placeholderPatterns = {
     newsletters: [/welcome to 2027/i, /newsletter and calendar to be updated/i, /term 1 2027/i],
-    gallery: [/placeholder/i],
+    gallery: [/placeholder/i, /facebook-gallery/i],
     enquiries: [/aisha patel/i, /lebo mokoena/i, /example.com/i],
     applications: [/mila patel/i, /aisha patel/i, /example.com/i],
   }
 
   const patterns = placeholderPatterns[type] ?? []
-  return patterns.some((pattern) => pattern.test(searchable))
+  return patterns.some((pattern) => pattern.test(searchable)) || (type === 'gallery' && /facebook-gallery/i.test(searchable))
 }
 
 async function fetchContentList(type, fallback) {
