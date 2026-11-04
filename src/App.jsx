@@ -331,6 +331,48 @@ function readStoredList(storageKey, fallback) {
   }
 }
 
+function isPublished(value) {
+  return value !== false
+}
+
+function formatUpdatedAt(value) {
+  if (!value) {
+    return 'Not updated yet'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'Not updated yet'
+  }
+
+  return date.toLocaleString([], {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+}
+
+function downloadCsv(filename, rows) {
+  const csvRows = [Object.keys(rows[0] || {}).join(',')]
+
+  rows.forEach((row) => {
+    const values = Object.values(row).map((value) => {
+      const stringValue = String(value ?? '')
+      return `"${stringValue.replace(/"/g, '""')}"`
+    })
+    csvRows.push(values.join(','))
+  })
+
+  const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 function AdminRoute({ children }) {
   const location = useLocation()
   const [status, setStatus] = useState('loading')
@@ -485,9 +527,10 @@ function AdminDashboardPage() {
   const [auditLog, setAuditLog] = useState(() => readStoredList('sheilagh-audit-log', [
     { id: 1, message: 'Dashboard initialized for school administration', timestamp: new Date().toISOString() },
   ]))
-  const [eventForm, setEventForm] = useState({ title: '', date: '', description: '' })
-  const [newsletterForm, setNewsletterForm] = useState({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
-  const [galleryForm, setGalleryForm] = useState({ src: '', alt: '' })
+  const [eventForm, setEventForm] = useState({ title: '', date: '', description: '', published: true })
+  const [newsletterForm, setNewsletterForm] = useState({ id: null, term: '', title: '', intro: '', points: '', closing: '', published: true })
+  const [galleryForm, setGalleryForm] = useState({ src: '', alt: '', published: true })
+  const [lastSync, setLastSync] = useState(new Date().toISOString())
   const [accountSettingsForm, setAccountSettingsForm] = useState({
     name: '',
     email: '',
@@ -523,6 +566,7 @@ function AdminDashboardPage() {
         setGallery(nextGallery)
         setNewsletterEntries(nextNewsletters)
         setApplications(nextApplications)
+        setLastSync(new Date().toISOString())
       } catch {
         if (isMounted) {
           setEnquiries([])
@@ -549,6 +593,9 @@ function AdminDashboardPage() {
     const contactedEnquiries = enquiries.filter((item) => item.status === 'contacted').length
 
     const newApplications = applications.filter((item) => item.status === 'new').length
+    const liveEvents = events.filter((item) => isPublished(item.published)).length
+    const liveGallery = gallery.filter((item) => isPublished(item.published)).length
+    const liveNewsletters = newsletterEntries.filter((item) => isPublished(item.published)).length
 
     return {
       totalEnquiries: enquiries.length,
@@ -560,6 +607,9 @@ function AdminDashboardPage() {
       totalNewsletters: newsletterEntries.length,
       totalApplications: applications.length,
       newApplications,
+      liveEvents,
+      liveGallery,
+      liveNewsletters,
       lastAudit: auditLog[0]?.message || 'No activity yet',
     }
   }, [applications, auditLog, enquiries, events, gallery, newsletterEntries])
@@ -673,6 +723,23 @@ function AdminDashboardPage() {
     navigate('/admin/login', { replace: true })
   }
 
+  const handleExportList = (collectionName, rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      setStatusMessage(`No ${collectionName} available to export yet.`)
+      return
+    }
+
+    const csvRows = rows.map((row) => ({
+      ...row,
+      submittedAt: row.submittedAt || row.updatedAt || '',
+      published: row.published === false ? 'Draft' : 'Live',
+    }))
+
+    const filename = `${collectionName}-${new Date().toISOString().slice(0, 10)}.csv`
+    downloadCsv(filename, csvRows)
+    setStatusMessage(`${collectionName.charAt(0).toUpperCase() + collectionName.slice(1)} exported as a CSV file.`)
+  }
+
   const handleReviewEnquiry = async (id) => {
     const target = enquiries.find((enquiry) => enquiry.id === id)
     if (!target) {
@@ -726,6 +793,8 @@ function AdminDashboardPage() {
       title: eventForm.title.trim(),
       date: eventForm.date,
       description: eventForm.description.trim(),
+      published: isPublished(eventForm.published),
+      updatedAt: new Date().toISOString(),
     }
 
     try {
@@ -735,10 +804,11 @@ function AdminDashboardPage() {
         : [...events, savedItem].sort((left, right) => new Date(left.date) - new Date(right.date))
 
       setEvents(nextEvents)
-      setEventForm({ title: '', date: '', description: '' })
+      setEventForm({ title: '', date: '', description: '', published: true })
       setEditingEventId(null)
       setStatusMessage(editingEventId ? 'School event updated successfully.' : 'School event added successfully.')
       persistAudit(editingEventId ? `Event edited: ${savedItem.title}` : `Event added: ${savedItem.title}`)
+      setLastSync(new Date().toISOString())
     } catch {
       setStatusMessage('Unable to save the school event right now. Please try again.')
     }
@@ -750,6 +820,7 @@ function AdminDashboardPage() {
       title: entry.title,
       date: entry.date,
       description: entry.description,
+      published: isPublished(entry.published),
     })
     setStatusMessage('Editing existing school event.')
   }
@@ -767,7 +838,7 @@ function AdminDashboardPage() {
 
     if (editingEventId === eventId) {
       setEditingEventId(null)
-      setEventForm({ title: '', date: '', description: '' })
+      setEventForm({ title: '', date: '', description: '', published: true })
     }
   }
 
@@ -800,6 +871,8 @@ function AdminDashboardPage() {
       intro,
       points,
       closing,
+      published: isPublished(newsletterForm.published),
+      updatedAt: new Date().toISOString(),
     }
 
     try {
@@ -809,10 +882,11 @@ function AdminDashboardPage() {
         : [savedItem, ...newsletterEntries]
 
       setNewsletterEntries(nextNewsletterEntries)
-      setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+      setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '', published: true })
       setEditingNewsletterId(null)
       setStatusMessage(editingNewsletterId ? 'Newsletter updated successfully.' : 'Newsletter added successfully.')
       persistAudit(editingNewsletterId ? `Newsletter updated: ${savedItem.title}` : `Newsletter added: ${savedItem.title}`)
+      setLastSync(new Date().toISOString())
     } catch {
       setStatusMessage('Unable to save the newsletter right now. Please try again.')
     }
@@ -827,6 +901,7 @@ function AdminDashboardPage() {
       intro: entry.intro,
       points: entry.points.join('\n'),
       closing: entry.closing,
+      published: isPublished(entry.published),
     })
     setStatusMessage('Editing existing newsletter.')
   }
@@ -844,7 +919,7 @@ function AdminDashboardPage() {
 
     if (editingNewsletterId === newsletterId) {
       setEditingNewsletterId(null)
-      setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+      setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '', published: true })
     }
   }
 
@@ -861,6 +936,13 @@ function AdminDashboardPage() {
 
     if (!file.type.startsWith('image/')) {
       setStatusMessage('Please choose an image file for the gallery.')
+      return
+    }
+
+    const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      setStatusMessage('Please upload a gallery image smaller than 2MB for best performance.')
+      event.target.value = ''
       return
     }
 
@@ -890,11 +972,18 @@ function AdminDashboardPage() {
     }
 
     try {
-      const savedItem = await saveContentItem('gallery', { id: Date.now(), src, alt }, 'POST')
+      const savedItem = await saveContentItem('gallery', {
+        id: Date.now(),
+        src,
+        alt,
+        published: isPublished(galleryForm.published),
+        updatedAt: new Date().toISOString(),
+      }, 'POST')
       setGallery((current) => [savedItem, ...current])
-      setGalleryForm({ src: '', alt: '' })
+      setGalleryForm({ src: '', alt: '', published: true })
       setStatusMessage('Gallery content updated.')
       persistAudit(`Gallery image added: ${alt}`)
+      setLastSync(new Date().toISOString())
     } catch {
       setStatusMessage('Unable to add the new gallery image right now.')
     }
@@ -943,6 +1032,8 @@ function AdminDashboardPage() {
         id: Date.now(),
         ...freshItem,
         alt: `${freshItem.alt} (Updated)`,
+        published: true,
+        updatedAt: new Date().toISOString(),
       }, 'POST')
 
       const updatedGallery = [savedItem, ...nextGallery]
@@ -980,21 +1071,27 @@ function AdminDashboardPage() {
           <strong>{stats.reviewedEnquiries}</strong>
         </div>
         <div className="admin-card summary-card">
-          <span>School events</span>
-          <strong>{stats.totalEvents}</strong>
+          <span>Live events</span>
+          <strong>{stats.liveEvents}</strong>
         </div>
         <div className="admin-card summary-card">
-          <span>Gallery items</span>
-          <strong>{stats.totalGallery}</strong>
+          <span>Live gallery</span>
+          <strong>{stats.liveGallery}</strong>
         </div>
         <div className="admin-card summary-card">
-          <span>Newsletters</span>
-          <strong>{stats.totalNewsletters}</strong>
+          <span>Live newsletters</span>
+          <strong>{stats.liveNewsletters}</strong>
         </div>
         <div className="admin-card summary-card">
           <span>Applications</span>
           <strong>{stats.totalApplications}</strong>
         </div>
+      </div>
+
+      <div className="admin-sync-bar">
+        <span>Last sync: {formatUpdatedAt(lastSync)}</span>
+        <button type="button" className="secondary-button tiny-button" onClick={() => handleExportList('applications', applications)}>Export applications</button>
+        <button type="button" className="secondary-button tiny-button" onClick={() => handleExportList('enquiries', enquiries)}>Export enquiries</button>
       </div>
 
       <div className="admin-grid">
@@ -1039,7 +1136,10 @@ function AdminDashboardPage() {
         </div>
 
         <div className="admin-card admin-panel-block wide-card">
-          <h2>Review enquiry messages</h2>
+          <div className="admin-section-header">
+            <h2>Review enquiry messages</h2>
+            <button type="button" className="secondary-button tiny-button" onClick={() => handleExportList('enquiries', enquiries)}>Export CSV</button>
+          </div>
           <div className="admin-filter-row">
             {['all', 'new', 'reviewed', 'contacted', 'archived'].map((option) => (
               <button
@@ -1079,7 +1179,10 @@ function AdminDashboardPage() {
         </div>
 
         <div className="admin-card admin-panel-block wide-card">
-          <h2>Online applications</h2>
+          <div className="admin-section-header">
+            <h2>Online applications</h2>
+            <button type="button" className="secondary-button tiny-button" onClick={() => handleExportList('applications', applications)}>Export CSV</button>
+          </div>
           {applications.length === 0 ? (
             <p>No online applications have been submitted yet.</p>
           ) : (
@@ -1118,11 +1221,19 @@ function AdminDashboardPage() {
               Description
               <textarea name="description" value={eventForm.description} onChange={handleEventChange} rows="4" placeholder="Add event details..." required />
             </label>
+            <label className="admin-publish-toggle">
+              <input
+                type="checkbox"
+                checked={eventForm.published}
+                onChange={(event) => setEventForm((current) => ({ ...current, published: event.target.checked }))}
+              />
+              Publish to the public site
+            </label>
             <button type="submit" className="primary-button">{editingEventId ? 'Save event changes' : 'Add event'}</button>
             {editingEventId && (
               <button type="button" className="secondary-button" onClick={() => {
                 setEditingEventId(null)
-                setEventForm({ title: '', date: '', description: '' })
+                setEventForm({ title: '', date: '', description: '', published: true })
               }}>
                 Cancel edit
               </button>
@@ -1144,6 +1255,7 @@ function AdminDashboardPage() {
                   <div>
                     <strong>{entry.title}</strong>
                     <p>{entry.description}</p>
+                    <small>{isPublished(entry.published) ? 'Live' : 'Draft'} · Updated {formatUpdatedAt(entry.updatedAt)}</small>
                   </div>
                 </div>
                 <div className="mini-item-actions">
@@ -1178,11 +1290,19 @@ function AdminDashboardPage() {
               Closing note
               <textarea name="closing" value={newsletterForm.closing} onChange={handleNewsletterChange} rows="3" placeholder="Add your closing message..." required />
             </label>
+            <label className="admin-publish-toggle">
+              <input
+                type="checkbox"
+                checked={newsletterForm.published}
+                onChange={(event) => setNewsletterForm((current) => ({ ...current, published: event.target.checked }))}
+              />
+              Publish to the public site
+            </label>
             <button type="submit" className="primary-button">{editingNewsletterId ? 'Save newsletter' : 'Add newsletter'}</button>
             {editingNewsletterId && (
               <button type="button" className="secondary-button" onClick={() => {
                 setEditingNewsletterId(null)
-                setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '' })
+                setNewsletterForm({ id: null, term: '', title: '', intro: '', points: '', closing: '', published: true })
               }}>
                 Cancel edit
               </button>
@@ -1197,6 +1317,7 @@ function AdminDashboardPage() {
                   <div>
                     <strong>{entry.title}</strong>
                     <p>{entry.intro}</p>
+                    <small>{isPublished(entry.published) ? 'Live' : 'Draft'} · Updated {formatUpdatedAt(entry.updatedAt)}</small>
                   </div>
                 </div>
                 <div className="mini-item-actions">
@@ -1224,6 +1345,14 @@ function AdminDashboardPage() {
               Alt text
               <input type="text" name="alt" value={galleryForm.alt} onChange={handleGalleryChange} placeholder="Children playing outdoors" required />
             </label>
+            <label className="admin-publish-toggle">
+              <input
+                type="checkbox"
+                checked={galleryForm.published}
+                onChange={(event) => setGalleryForm((current) => ({ ...current, published: event.target.checked }))}
+              />
+              Publish to the public site
+            </label>
             <button type="submit" className="primary-button">Add gallery image</button>
           </form>
           <button type="button" className="secondary-button" onClick={handleGalleryRefresh}>Refresh gallery</button>
@@ -1234,6 +1363,7 @@ function AdminDashboardPage() {
                 <img src={item.src} alt={item.alt} />
                 <div className="gallery-row-meta">
                   <strong>{item.alt}</strong>
+                  <small>{isPublished(item.published) ? 'Live' : 'Draft'} · Updated {formatUpdatedAt(item.updatedAt)}</small>
                   <div className="gallery-row-actions">
                     <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryMove(index, -1)}>↑</button>
                     <button type="button" className="secondary-button tiny-button" onClick={() => handleGalleryMove(index, 1)}>↓</button>
