@@ -367,7 +367,7 @@ function generateApplicationPdf(formData) {
 }
 
 async function shareApplicationPdf(pdf, messageText) {
-  const shareText = `${messageText}\n\nPlease choose WhatsApp and select the nursery chat as the share target.`
+  const shareText = `${messageText}\n\nPlease choose WhatsApp and select the nursery chat as the share target. The PDF is attached for your records.`
 
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })] })) {
     const shareFile = new File([pdf.blob], pdf.fileName, { type: 'application/pdf' })
@@ -399,36 +399,39 @@ async function shareApplicationPdf(pdf, messageText) {
 
 function buildApplicationSummaryText(data) {
   const lines = [
-    'Sheilagh\'s Place Nursery - Online Application',
+    "Sheilagh's Place Nursery",
+    'School Registration Enquiry',
     '',
-    '1. Applicant information',
+    'Applicant information',
     `Application type: ${data.applicationType || 'Not provided'}`,
     `Parent / guardian: ${data.parentName || 'Not provided'}`,
-    `Email: ${data.email || 'Not provided'}`,
-    `Phone: ${data.phone || 'Not provided'}`,
-    `Address: ${data.address || 'Not provided'}`,
+    `Email address: ${data.email || 'Not provided'}`,
+    `Phone number: ${data.phone || 'Not provided'}`,
+    `Residential address: ${data.address || 'Not provided'}`,
     '',
-    '2. Child details',
+    'Child details',
     `Child name: ${data.childName || 'Not provided'}`,
     `Date of birth: ${data.dateOfBirth || 'Not provided'}`,
     `Age: ${data.childAge || 'Not provided'}`,
     `Gender: ${data.gender || 'Not provided'}`,
     `Home language: ${data.homeLanguage || 'Not provided'}`,
     '',
-    '3. Emergency contact',
-    `Emergency contact: ${data.emergencyName || 'Not provided'} (${data.emergencyPhone || 'Not provided'})`,
+    'Emergency contact',
+    `Emergency contact person: ${data.emergencyName || 'Not provided'}`,
+    `Emergency contact number: ${data.emergencyPhone || 'Not provided'}`,
     `Relationship to child: ${data.relationship || 'Not provided'}`,
     '',
-    '4. Medical and welfare information',
+    'Medical and welfare information',
     `Medical concerns: ${data.medicalConcerns || 'None noted'}`,
     `Allergies: ${data.allergies || 'None noted'}`,
     `Medication: ${data.medication || 'Not provided'}`,
     `Medical aid / doctor: ${data.medicalAid || 'Not provided'} / ${data.doctor || 'Not provided'}`,
     `Immunisations: ${data.immunisations || 'Not provided'}`,
     '',
-    '5. Nursery and fee information',
+    'Nursery and fee information',
     `Preferred start date: ${data.startDate || 'Not provided'}`,
-    `Fees / stationery: ${data.schoolFees || 'Not provided'} / ${data.stationery || 'Not provided'}`,
+    `School fees: ${data.schoolFees || 'Not provided'}`,
+    `Stationery / requirements: ${data.stationery || 'Not provided'}`,
     `Additional comments: ${data.comments || 'None'}`,
   ]
 
@@ -2807,11 +2810,13 @@ function ContactPage() {
     const cleanPhone = formData.phone.trim()
     const cleanMessage = formData.message.trim() || 'No message provided.'
     const text = [
-      "Hello Sheilagh's Place Nursery,",
+      "Dear Sheilagh's Place Nursery,",
       '',
-      `Parent name: ${cleanName}`,
-      `Email: ${cleanEmail || 'Not provided'}`,
-      `Phone: ${cleanPhone || 'Not provided'}`,
+      'Enrolment Enquiry',
+      '',
+      `Parent / guardian name: ${cleanName}`,
+      `Email address: ${cleanEmail || 'Not provided'}`,
+      `Phone number: ${cleanPhone || 'Not provided'}`,
       '',
       'Enquiry details:',
       cleanMessage,
