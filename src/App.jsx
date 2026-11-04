@@ -194,45 +194,103 @@ function generateApplicationPdf(formData) {
   const pageWidth = doc.internal.pageSize.getWidth()
   let currentY = 54
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(18)
-  doc.text("Sheilagh's Place Nursery - Application Form", margin, currentY)
-  currentY += 26
-
-  const summaryLines = [
-    `Application type: ${formData.applicationType || 'Not specified'}`,
-    `Child name: ${formData.childName || 'Not provided'}`,
-    `Date of birth: ${formData.dateOfBirth || 'Not provided'}`,
-    `Parent / guardian: ${formData.parentName || 'Not provided'}`,
-    `Email: ${formData.email || 'Not provided'}`,
-    `Phone: ${formData.phone || 'Not provided'}`,
-    `Emergency contact: ${formData.emergencyName || 'Not provided'} | ${formData.emergencyPhone || 'Not provided'}`,
-    `Allergies / medical concerns: ${formData.medicalConcerns || 'None noted'}`,
-    `Medical aid / doctor: ${formData.medicalAid || 'Not provided'}`,
-    `School fees / stationery: ${formData.feesInfo || 'Not provided'}`,
-  ]
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-
-  summaryLines.forEach((line) => {
-    if (currentY > 760) {
+  const writeSection = (title, fields) => {
+    if (currentY > 720) {
       doc.addPage()
       currentY = 54
     }
-    doc.text(line, margin, currentY)
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(12)
+    doc.text(title, margin, currentY)
     currentY += 18
-  })
 
-  const noteText = 'I agree to the nursery policies, emergency procedures, and the terms stated by Sheilagh\'s Place Nursery.'
-  const wrapped = doc.splitTextToSize(noteText, pageWidth - margin * 2)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
 
-  currentY += 6
+    fields.forEach(([label, value]) => {
+      const safeValue = value ?? 'Not provided'
+      const line = `${label}: ${safeValue}`
+      const wrapped = doc.splitTextToSize(line, pageWidth - margin * 2)
+
+      wrapped.forEach((wrappedLine) => {
+        if (currentY > 760) {
+          doc.addPage()
+          currentY = 54
+        }
+        doc.text(wrappedLine, margin, currentY)
+        currentY += 14
+      })
+    })
+
+    currentY += 8
+  }
+
   doc.setFont('helvetica', 'bold')
-  doc.text('Declaration', margin, currentY)
-  currentY += 18
+  doc.setFontSize(18)
+  doc.text("Sheilagh's Place Nursery - Enrolment Application", margin, currentY)
+  currentY += 22
+
   doc.setFont('helvetica', 'normal')
-  wrapped.forEach((line) => {
+  doc.setFontSize(9)
+  doc.text(`Generated: ${new Date().toLocaleString()}`, margin, currentY)
+  currentY += 18
+
+  writeSection('1. Child details', [
+    ['Application type', formData.applicationType],
+    ['Child name', formData.childName],
+    ['Date of birth', formData.dateOfBirth],
+    ['Age', formData.childAge],
+    ['Gender', formData.gender],
+    ['Home language', formData.homeLanguage],
+  ])
+
+  writeSection('2. Parent / guardian details', [
+    ['Parent / guardian name', formData.parentName],
+    ['Email address', formData.email],
+    ['Phone number', formData.phone],
+    ['Residential address', formData.address],
+    ['Employment status', formData.employmentStatus],
+  ])
+
+  writeSection('3. Emergency contact', [
+    ['Emergency contact name', formData.emergencyName],
+    ['Emergency contact phone', formData.emergencyPhone],
+    ['Relationship to child', formData.relationship],
+  ])
+
+  writeSection('4. Medical and wellbeing information', [
+    ['Medical concerns', formData.medicalConcerns],
+    ['Allergies', formData.allergies],
+    ['Medication', formData.medication],
+    ['Medical aid / provider', formData.medicalAid],
+    ['Doctor / clinic name', formData.doctor],
+    ['Immunisations', formData.immunisations],
+  ])
+
+  writeSection('5. Nursery and fee information', [
+    ['Preferred start date', formData.startDate],
+    ['School fees', formData.schoolFees],
+    ['Stationery / requirements', formData.stationery],
+    ['Additional comments', formData.comments],
+  ])
+
+  if (currentY > 700) {
+    doc.addPage()
+    currentY = 54
+  }
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.text('6. Declaration', margin, currentY)
+  currentY += 18
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(10)
+  const declarationText = 'I confirm that the information provided is accurate and that I agree to Sheilagh\'s Place Nursery\'s enrolment procedures, policies, and emergency protocols.'
+  const wrappedDeclaration = doc.splitTextToSize(declarationText, pageWidth - margin * 2)
+
+  wrappedDeclaration.forEach((line) => {
     if (currentY > 760) {
       doc.addPage()
       currentY = 54
